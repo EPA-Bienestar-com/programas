@@ -355,7 +355,7 @@ case 'Duración Ejercicio':
         status: 'final',
       };
 
-case 'Duración Período':
+case 'Duración Período (Fem)':
       return {
         resourceType: 'Observation',
         subject,
