@@ -55,7 +55,7 @@ const resources = [
   {
     name: 'Ayuda',
     description: 'Get all of your questions answered in our forums or contact support.',
-    href: '#',
+    href: 'https://ia.epa-bienestar.com.ar',
     icon: LifebuoyIcon,
   },
   {
@@ -67,15 +67,15 @@ const resources = [
   {
     name: 'Eventos',
     description: 'See what meet-ups and other events we might be planning near you.',
-    href: '#',
+    href: 'https://plataforma.miscaminatas.com/eventos/',
     icon: CalendarIcon,
   },
   { name: 'Privacidad', description: 'Nos tomamos muy en serio su privacidad.', href: 'https://www.epa-bienestar.com.ar/politica_de_privacidad.html', icon: ShieldCheckIcon },
 ];
 const recentPosts = [
-  { id: 1, name: 'Vaccination recommendations for travel', href: '#' },
-  { id: 2, name: 'Importing your own health record', href: '#' },
-  { id: 3, name: 'Get to a diagnosis faster', href: '#' },
+  { id: 1, name: 'Rincón del Hipertenso', href: 'https://www.rincondelhipertenso.com.ar/' },
+  { id: 2, name: 'Experiencias Personales Agiles', href: 'https://www.epa-bienestar.com.ar' },
+  { id: 3, name: 'Conoce y Controla 2024', href: 'https://www.youtube.com/watch?v=5Hq-XSLmARE' },
 ];
 
 function classNames(...classes: string[]): string {
