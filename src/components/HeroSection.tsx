@@ -23,20 +23,20 @@ import WorkingEnvironmentImage from '../img/landingPage/habitos-saludables-para-
 const features = [
   {
     name: 'Analytics',
-    href: '#',
+    href: 'https://www.epa-bienestar.com.ar/analytics.html',
     description: 'Get a better understanding of where your traffic is coming from.',
     icon: ChartBarIcon,
   },
   {
     name: 'Engagement',
-    href: '#',
+    href: 'https://www.epa-bienestar.com.ar/engagement.html',
     description: 'Speak directly to your customers in a more meaningful way.',
     icon: CursorArrowRaysIcon,
   },
   { name: 'Privacy', href: '#', description: "Your customers' data will be safe and secure.", icon: ShieldCheckIcon },
   {
     name: 'Integraciones',
-    href: '#',
+    href: 'https://www.epa-bienestar.com.ar/integraciones.html',
     description: "Connect with third-party tools that you're already using.",
     icon: Squares2X2Icon,
   },
@@ -49,7 +49,7 @@ const features = [
 ];
 const callsToAction = [
   { name: 'Watch Demo', href: '#', icon: PlayIcon },
-  { name: 'Contact Sales', href: '#', icon: PhoneIcon },
+  { name: 'Contacto', href: '#', icon: PhoneIcon },
 ];
 const resources = [
   {
@@ -61,7 +61,7 @@ const resources = [
   {
     name: 'Guías',
     description: 'Learn how to maximize our platform to get the most out of it.',
-    href: '#',
+    href: 'https://www.paho.org/es/hearts-americas/hearts-americas-paquete-tecnico',
     icon: BookmarkSquareIcon,
   },
   {
@@ -70,7 +70,7 @@ const resources = [
     href: '#',
     icon: CalendarIcon,
   },
-  { name: 'Privacy', description: 'Understand how we take your privacy seriously.', href: '#', icon: ShieldCheckIcon },
+  { name: 'Privacidad', description: 'Nos tomamos muy en serio su privacidad.', href: 'https://www.epa-bienestar.com.ar/politica_de_privacidad.html', icon: ShieldCheckIcon },
 ];
 const recentPosts = [
   { id: 1, name: 'Vaccination recommendations for travel', href: '#' },
