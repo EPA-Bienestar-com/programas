@@ -1,0 +1,1683 @@
+From 656a9724c6b2f1fae56a15be6315251c25bb9b1b Mon Sep 17 00:00:00 2001
+From: EPA Cardio-Onco <ai@epa-bienestar.com.ar>
+Date: Fri, 8 May 2026 13:27:51 +0000
+Subject: [PATCH] feat(cardio-onco): add scheduling and notifications module
+
+---
+ programas/cardio-onco/notification-bot.ts     | 172 +++++++
+ .../cardio-onco/SchedulePreview.tsx           | 236 ++++++++++
+ src/lib/cardio-onco/fhir.ts                   | 323 +++++++++++++
+ src/lib/cardio-onco/scheduleEngine.ts         | 440 ++++++++++++++++++
+ .../notifications/NotificationsPage.tsx       | 221 +++++++++
+ .../cardio-onco/scheduling/SchedulePage.tsx   | 232 +++++++++
+ 6 files changed, 1624 insertions(+)
+ create mode 100644 programas/cardio-onco/notification-bot.ts
+ create mode 100644 src/components/cardio-onco/SchedulePreview.tsx
+ create mode 100644 src/lib/cardio-onco/fhir.ts
+ create mode 100644 src/lib/cardio-onco/scheduleEngine.ts
+ create mode 100644 src/pages/cardio-onco/notifications/NotificationsPage.tsx
+ create mode 100644 src/pages/cardio-onco/scheduling/SchedulePage.tsx
+
+diff --git a/programas/cardio-onco/notification-bot.ts b/programas/cardio-onco/notification-bot.ts
+new file mode 100644
+index 0000000..c7ca23e
+--- /dev/null
++++ b/programas/cardio-onco/notification-bot.ts
+@@ -0,0 +1,172 @@
++/**
++ * notification-bot.ts — Medplum Bot
++ *
++ * Bot que se ejecuta de forma programada (cron diario) y dispara las
++ * notificaciones cardio-oncológicas que corresponden a la fecha actual.
++ *
++ * Despliegue: este archivo se publica como un Bot en Medplum siguiendo
++ * https://www.medplum.com/docs/bots/bot-basics. Una vez creado, se
++ * vincula a una Subscription (cron) o se invoca vía un Schedule.
++ *
++ * Lógica:
++ *  1. Busca recursos Communication en estado 'preparation' cuya fecha
++ *     'sent' caiga en las próximas 24 h.
++ *  2. Por cada uno, despacha al canal correspondiente:
++ *      - in-app  → cambia status a 'in-progress' (visible en NotificationsPage)
++ *      - email   → llama a sendEmail()
++ *      - sms     → integra con proveedor SMS (Twilio, etc.)
++ *      - push    → llama al servicio de push web
++ *  3. Marca el Communication como 'in-progress' (despachada) y registra
++ *     el evento en un AuditEvent.
++ *
++ * Variables de entorno esperadas en el Bot:
++ *  - SMTP_RELAY_URL          (para email)
++ *  - PUSH_WEB_VAPID_KEY      (para web push)
++ */
++
++import { BotEvent, MedplumClient } from '@medplum/core';
++import type { AuditEvent, Communication, Patient } from '@medplum/fhirtypes';
++
++interface BotInput {
++  /** Si se especifica, solo procesa notificaciones de este paciente */
++  patientId?: string;
++  /** Modo dry-run: registra pero no despacha */
++  dryRun?: boolean;
++}
++
++export async function handler(medplum: MedplumClient, event: BotEvent<BotInput>): Promise<unknown> {
++  const input = event.input ?? {};
++  const now = new Date();
++  const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
++
++  // 1. Buscar notificaciones preparadas dentro de las próximas 24 h
++  const search: Record<string, string> = {
++    status: 'preparation',
++    sent: `ge${now.toISOString()}`,
++    _count: '500',
++  };
++  if (input.patientId) {
++    search.recipient = `Patient/${input.patientId}`;
++  }
++  const due = await medplum.searchResources('Communication', search);
++
++  const inWindow = due.filter((c) => {
++    if (!c.sent) return false;
++    const sent = new Date(c.sent).getTime();
++    return sent <= horizon.getTime();
++  });
++
++  console.log(`[notification-bot] ${inWindow.length} notificaciones a despachar`);
++
++  let dispatched = 0;
++  for (const comm of inWindow) {
++    try {
++      await dispatchOne(medplum, comm, input.dryRun ?? false);
++      dispatched++;
++    } catch (err) {
++      console.error(`[notification-bot] Error en Communication/${comm.id}:`, err);
++      await audit(medplum, comm, 'failure', String(err));
++    }
++  }
++
++  return {
++    processed: inWindow.length,
++    dispatched,
++    skipped: inWindow.length - dispatched,
++    dryRun: input.dryRun ?? false,
++    timestamp: now.toISOString(),
++  };
++}
++
++/* ============================================================
++ * Despacho por canal
++ * ============================================================ */
++
++async function dispatchOne(
++  medplum: MedplumClient,
++  comm: Communication,
++  dryRun: boolean,
++): Promise<void> {
++  const channel = comm.medium?.[0]?.coding?.[0]?.code ?? 'ELECTRONIC';
++  const recipientRef = comm.recipient?.[0]?.reference;
++  if (!recipientRef) {
++    throw new Error('Communication sin recipient');
++  }
++  const patient = await medplum.readReference<Patient>({ reference: recipientRef });
++  const subject = comm.topic?.text ?? 'Recordatorio';
++  const body = comm.payload?.[0]?.contentString ?? '';
++
++  if (dryRun) {
++    console.log(`[dry-run] ${channel} → Patient/${patient.id}: ${subject}`);
++    return;
++  }
++
++  switch (channel) {
++    case 'EMAILWRIT':
++      await sendEmail(patient, subject, body);
++      break;
++    case 'SMSWRIT':
++      await sendSms(patient, body);
++      break;
++    case 'ELECTRONIC':
++    default:
++      // In-app: solo se actualiza el estado para que aparezca en
++      // NotificationsPage del frontal.
++      break;
++  }
++
++  await medplum.updateResource({
++    ...comm,
++    status: 'in-progress',
++    sent: new Date().toISOString(),
++  });
++  await audit(medplum, comm, 'success');
++}
++
++/* ============================================================
++ * Integraciones de canal — stubs, completar en producción
++ * ============================================================ */
++
++async function sendEmail(patient: Patient, subject: string, body: string): Promise<void> {
++  const email = patient.telecom?.find((t) => t.system === 'email')?.value;
++  if (!email) {
++    throw new Error('Paciente sin email registrado');
++  }
++  // TODO: integrar SMTP/SES/SendGrid en producción.
++  console.log(`[email] → ${email}: ${subject}`);
++}
++
++async function sendSms(patient: Patient, body: string): Promise<void> {
++  const phone = patient.telecom?.find((t) => t.system === 'phone')?.value;
++  if (!phone) {
++    throw new Error('Paciente sin teléfono registrado');
++  }
++  // TODO: integrar Twilio/AWS SNS en producción.
++  console.log(`[sms] → ${phone}: ${body.slice(0, 60)}…`);
++}
++
++/* ============================================================
++ * AuditEvent — trazabilidad regulatoria
++ * ============================================================ */
++
++async function audit(
++  medplum: MedplumClient,
++  comm: Communication,
++  outcome: 'success' | 'failure',
++  detail?: string,
++): Promise<void> {
++  const ev: AuditEvent = {
++    resourceType: 'AuditEvent',
++    type: { system: 'http://terminology.hl7.org/CodeSystem/audit-event-type', code: 'rest', display: 'RESTful Operation' },
++    subtype: [{ system: 'http://hl7.org/fhir/restful-interaction', code: 'update', display: 'update' }],
++    action: 'U',
++    recorded: new Date().toISOString(),
++    outcome: outcome === 'success' ? '0' : '8',
++    outcomeDesc: detail,
++    source: { observer: { display: 'cardio-onco notification bot' } },
++    entity: comm.id
++      ? [{ what: { reference: `Communication/${comm.id}` }, role: { code: '4', display: 'Domain' } }]
++      : undefined,
++  };
++  await medplum.createResource(ev);
++}
+diff --git a/src/components/cardio-onco/SchedulePreview.tsx b/src/components/cardio-onco/SchedulePreview.tsx
+new file mode 100644
+index 0000000..04efdea
+--- /dev/null
++++ b/src/components/cardio-onco/SchedulePreview.tsx
+@@ -0,0 +1,236 @@
++/**
++ * SchedulePreview — Cronograma cardio-oncológico
++ *
++ * Render visual del cronograma generado por scheduleEngine, agrupado
++ * por fase y con detalle clínico/FHIR para que el cardiólogo pueda
++ * revisar y aprobar el plan antes de su persistencia.
++ */
++
++import {
++  CalendarDaysIcon,
++  HeartIcon,
++  BellAlertIcon,
++  DocumentTextIcon,
++  ClockIcon,
++  CheckBadgeIcon,
++} from '@heroicons/react/24/outline';
++import type { ScheduledEvent, Phase, StudyType } from '../../lib/cardio-onco/scheduleEngine';
++
++interface Props {
++  events: ScheduledEvent[];
++  riskLevel: 'low' | 'moderate' | 'high' | 'very-high';
++  patientName?: string;
++}
++
++const PHASE_META: Record<Phase, { label: string; tag: string; bg: string; ring: string }> = {
++  baseline: {
++    label: 'Fase Previa — Evaluación basal',
++    tag: 'PREVIA',
++    bg: 'bg-rose-50',
++    ring: 'ring-rose-700',
++  },
++  'on-treatment': {
++    label: 'Fase Intra — Vigilancia activa',
++    tag: 'INTRA',
++    bg: 'bg-amber-50',
++    ring: 'ring-amber-700',
++  },
++  'end-of-treatment': {
++    label: 'Fin de tratamiento',
++    tag: 'POST 0–3M',
++    bg: 'bg-slate-100',
++    ring: 'ring-slate-700',
++  },
++  survivorship: {
++    label: 'Fase Post — Seguimiento de supervivientes',
++    tag: 'POST 3M+',
++    bg: 'bg-emerald-50',
++    ring: 'ring-emerald-700',
++  },
++};
++
++const STUDY_LABEL: Record<StudyType, string> = {
++  ecg: 'ECG',
++  'echo-2d': 'Eco 2D',
++  'echo-gls': 'Eco + SLG',
++  troponin: 'Troponina HS',
++  bnp: 'NT-proBNP',
++  'lipid-panel': 'Perfil lipídico',
++  hba1c: 'HbA1c',
++  'home-bp': 'PA domiciliaria',
++  'cardiac-mri': 'RM cardíaca',
++  'questionnaire-proms': 'PROMs',
++  'cardiology-consult': 'Consulta cardio',
++};
++
++const RISK_COLOR: Record<Props['riskLevel'], string> = {
++  low: 'bg-emerald-100 text-emerald-800 ring-emerald-700/30',
++  moderate: 'bg-amber-100 text-amber-800 ring-amber-700/30',
++  high: 'bg-rose-100 text-rose-800 ring-rose-700/30',
++  'very-high': 'bg-red-200 text-red-900 ring-red-800/40',
++};
++
++export function SchedulePreview({ events, riskLevel, patientName }: Props): JSX.Element {
++  const grouped = groupByPhase(events);
++  const totalReminders = events.reduce((s, e) => s + e.reminderLeadDaysBefore.length, 0);
++
++  return (
++    <div className="mx-auto max-w-6xl space-y-8 px-6 py-10 font-sans">
++      {/* ============ HEADER ============ */}
++      <header className="border-b border-slate-200 pb-6">
++        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-rose-700">
++          <HeartIcon className="h-4 w-4" />
++          Programa Cardio-Oncológico — Plan de Seguimiento
++        </div>
++        <h1 className="mt-3 font-serif text-3xl text-slate-900">
++          Cronograma de seguimiento{patientName ? ` — ${patientName}` : ''}
++        </h1>
++        <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-600">
++          <span className={`rounded px-2.5 py-1 text-xs font-semibold uppercase ring-1 ${RISK_COLOR[riskLevel]}`}>
++            Riesgo HFA-ICOS · {riskLevel}
++          </span>
++          <span className="rounded bg-slate-100 px-2.5 py-1 text-xs uppercase tracking-wider ring-1 ring-slate-300">
++            {events.length} actividades
++          </span>
++          <span className="rounded bg-slate-100 px-2.5 py-1 text-xs uppercase tracking-wider ring-1 ring-slate-300">
++            {totalReminders} notificaciones programadas
++          </span>
++          <span className="rounded bg-slate-900 px-2.5 py-1 text-xs uppercase tracking-wider text-white">
++            HL7 FHIR R4
++          </span>
++        </div>
++      </header>
++
++      {/* ============ KPIs ============ */}
++      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
++        <Stat icon={<CalendarDaysIcon className="h-5 w-5" />} label="Eventos basales" value={grouped.baseline.length} />
++        <Stat
++          icon={<ClockIcon className="h-5 w-5" />}
++          label="Vigilancia intra"
++          value={grouped['on-treatment'].length}
++        />
++        <Stat
++          icon={<DocumentTextIcon className="h-5 w-5" />}
++          label="Reevaluación 0–3m"
++          value={grouped['end-of-treatment'].length}
++        />
++        <Stat
++          icon={<CheckBadgeIcon className="h-5 w-5" />}
++          label="Supervivencia"
++          value={grouped.survivorship.length}
++        />
++      </section>
++
++      {/* ============ PHASES ============ */}
++      {(['baseline', 'on-treatment', 'end-of-treatment', 'survivorship'] as Phase[]).map((phase) => {
++        const phaseEvents = grouped[phase];
++        if (phaseEvents.length === 0) return null;
++
++        const meta = PHASE_META[phase];
++        return (
++          <section key={phase} className={`rounded-lg ${meta.bg} ring-1 ${meta.ring}/30`}>
++            <header className="flex items-center justify-between border-b border-current/10 px-6 py-4">
++              <div>
++                <span className="text-xs font-mono font-semibold tracking-widest text-slate-700">
++                  {meta.tag}
++                </span>
++                <h2 className="font-serif text-xl text-slate-900">{meta.label}</h2>
++              </div>
++              <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-300">
++                {phaseEvents.length} eventos
++              </span>
++            </header>
++            <ul className="divide-y divide-slate-200">
++              {phaseEvents.map((e) => (
++                <EventRow key={e.id} event={e} />
++              ))}
++            </ul>
++          </section>
++        );
++      })}
++
++      {/* ============ FOOTER ============ */}
++      <footer className="rounded border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
++        <p>
++          <strong className="text-slate-900">Cronograma derivado.</strong> Este plan se generó automáticamente
++          a partir del régimen terapéutico declarado y del riesgo HFA-ICOS basal, conforme a la Guía ESC 2022.
++          Antes de su persistencia como CarePlan FHIR, el cardiólogo responsable debe revisar y aprobar cada
++          actividad. Las notificaciones se enviarán al frontal del paciente
++          en <code className="rounded bg-white px-1 py-0.5 font-mono">programas.epa-bienestar.com.ar</code>.
++        </p>
++      </footer>
++    </div>
++  );
++}
++
++/* ============ Sub-components ============ */
++
++function Stat({ icon, label, value }: { icon: JSX.Element; label: string; value: number }) {
++  return (
++    <div className="rounded border border-slate-200 bg-white p-4">
++      <div className="flex items-center gap-2 text-slate-500">
++        {icon}
++        <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
++      </div>
++      <div className="mt-2 font-serif text-3xl text-slate-900">{value}</div>
++    </div>
++  );
++}
++
++function EventRow({ event }: { event: ScheduledEvent }) {
++  return (
++    <li className="grid grid-cols-12 gap-4 px-6 py-4 transition hover:bg-white/60">
++      <div className="col-span-2 font-mono text-sm text-slate-700">
++        {formatDate(event.scheduledDate)}
++      </div>
++      <div className="col-span-2">
++        <span className="inline-flex items-center rounded bg-slate-900 px-2 py-0.5 text-xs font-medium text-white">
++          {STUDY_LABEL[event.study]}
++        </span>
++      </div>
++      <div className="col-span-6">
++        <div className="text-sm font-medium text-slate-900">{event.label}</div>
++        <div className="mt-1 text-xs italic text-slate-600">{event.rationale}</div>
++        {event.fhir.loinc && (
++          <div className="mt-2 flex gap-3 text-[11px] font-mono text-slate-500">
++            <span>LOINC {event.fhir.loinc}</span>
++            {event.fhir.snomed && <span>SNOMED {event.fhir.snomed}</span>}
++            <span className="rounded bg-slate-100 px-1.5 ring-1 ring-slate-200">
++              {event.fhir.resourceType}
++            </span>
++          </div>
++        )}
++      </div>
++      <div className="col-span-2 flex items-start justify-end">
++        <div className="flex flex-col items-end gap-1">
++          {event.requiresInPersonVisit && (
++            <span className="text-[11px] font-medium uppercase tracking-wider text-slate-700">
++              Presencial
++            </span>
++          )}
++          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
++            <BellAlertIcon className="h-3.5 w-3.5" />
++            {event.reminderLeadDaysBefore.length} aviso
++            {event.reminderLeadDaysBefore.length === 1 ? '' : 's'}
++          </div>
++        </div>
++      </div>
++    </li>
++  );
++}
++
++function groupByPhase(events: ScheduledEvent[]) {
++  const acc: Record<Phase, ScheduledEvent[]> = {
++    baseline: [],
++    'on-treatment': [],
++    'end-of-treatment': [],
++    survivorship: [],
++  };
++  for (const e of events) acc[e.phase].push(e);
++  return acc;
++}
++
++function formatDate(iso: string): string {
++  const d = new Date(iso + 'T00:00:00');
++  return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
++}
+diff --git a/src/lib/cardio-onco/fhir.ts b/src/lib/cardio-onco/fhir.ts
+new file mode 100644
+index 0000000..7cc3146
+--- /dev/null
++++ b/src/lib/cardio-onco/fhir.ts
+@@ -0,0 +1,323 @@
++/**
++ * FHIR Resource Builders — Cardio-Oncology
++ *
++ * Convierte los eventos del schedule engine en recursos FHIR R4 conforme
++ * al perfilado nacional argentino (Patient_ar_core) y a las guías de
++ * implementación de la Red Nacional de Salud Digital (DNGISS).
++ *
++ * @module lib/cardio-onco/fhir
++ */
++
++import type {
++  Appointment,
++  CarePlan,
++  Communication,
++  Patient,
++  Practitioner,
++  Reference,
++  ServiceRequest,
++  Task,
++} from '@medplum/fhirtypes';
++import type { ScheduledEvent } from './scheduleEngine';
++
++const SYSTEM = {
++  loinc: 'http://loinc.org',
++  snomed: 'http://snomed.info/sct',
++  ucum: 'http://unitsofmeasure.org',
++  ipsAr: 'https://www.argentina.gob.ar/salud/digital/perfiles/ips-ar',
++} as const;
++
++/* ============================================================
++ * APPOINTMENT — visita presencial programada
++ * ============================================================ */
++
++export function buildAppointment(
++  event: ScheduledEvent,
++  patient: Reference<Patient>,
++  practitioner?: Reference<Practitioner>,
++): Appointment {
++  const start = `${event.scheduledDate}T09:00:00-03:00`;
++  const end = `${event.scheduledDate}T09:30:00-03:00`;
++
++  const participants: Appointment['participant'] = [
++    { actor: patient, status: 'tentative', required: 'required' },
++  ];
++  if (practitioner) {
++    participants.push({ actor: practitioner, status: 'accepted', required: 'required' });
++  }
++
++  return {
++    resourceType: 'Appointment',
++    status: 'booked',
++    serviceCategory: [
++      { coding: [{ system: SYSTEM.snomed, code: '394579002', display: 'Cardio-oncology' }] },
++    ],
++    serviceType: event.fhir.snomed
++      ? [{ coding: [{ system: SYSTEM.snomed, code: event.fhir.snomed, display: event.label }] }]
++      : undefined,
++    appointmentType: {
++      coding: [{ system: SYSTEM.snomed, code: '185349003', display: 'Encounter for check up' }],
++    },
++    description: event.label,
++    comment: event.rationale,
++    start,
++    end,
++    minutesDuration: 30,
++    participant: participants,
++  };
++}
++
++/* ============================================================
++ * SERVICE REQUEST — solicitud de un estudio diagnóstico
++ * ============================================================ */
++
++export function buildServiceRequest(
++  event: ScheduledEvent,
++  patient: Reference<Patient>,
++  requester?: Reference<Practitioner>,
++): ServiceRequest {
++  return {
++    resourceType: 'ServiceRequest',
++    status: 'active',
++    intent: 'order',
++    priority: 'routine',
++    category: [
++      { coding: [{ system: SYSTEM.snomed, code: '394579002', display: 'Cardio-oncology' }] },
++    ],
++    code: {
++      coding: [
++        ...(event.fhir.loinc ? [{ system: SYSTEM.loinc, code: event.fhir.loinc, display: event.label }] : []),
++        ...(event.fhir.snomed ? [{ system: SYSTEM.snomed, code: event.fhir.snomed, display: event.label }] : []),
++      ],
++      text: event.label,
++    },
++    subject: patient,
++    occurrenceDateTime: event.scheduledDate,
++    authoredOn: new Date().toISOString(),
++    requester,
++    note: [{ text: event.rationale }],
++  };
++}
++
++/* ============================================================
++ * TASK — actividad del paciente (PROM, SMBP)
++ * ============================================================ */
++
++export function buildTask(
++  event: ScheduledEvent,
++  patient: Reference<Patient>,
++): Task {
++  return {
++    resourceType: 'Task',
++    status: 'requested',
++    intent: 'order',
++    priority: 'routine',
++    code: {
++      coding: event.fhir.loinc
++        ? [{ system: SYSTEM.loinc, code: event.fhir.loinc, display: event.label }]
++        : [],
++      text: event.label,
++    },
++    description: event.rationale,
++    for: patient,
++    authoredOn: new Date().toISOString(),
++    executionPeriod: { start: event.scheduledDate },
++    restriction: { period: { end: addDaysISO(event.scheduledDate, 2) } },
++  };
++}
++
++/* ============================================================
++ * CARE PLAN — plan integral cardio-oncológico del paciente
++ * ============================================================ */
++
++export interface CarePlanInput {
++  patient: Reference<Patient>;
++  events: ScheduledEvent[];
++  riskLevel: 'low' | 'moderate' | 'high' | 'very-high';
++  startDate: string;
++  endDate?: string;
++  author?: Reference<Practitioner>;
++}
++
++export function buildCarePlan(input: CarePlanInput): CarePlan {
++  const lastEventDate = input.events[input.events.length - 1]?.scheduledDate;
++  return {
++    resourceType: 'CarePlan',
++    status: 'active',
++    intent: 'plan',
++    title: 'Plan de Seguimiento Cardio-Oncológico',
++    description:
++      'Plan longitudinal de vigilancia cardio-oncológica conforme a la Guía ESC 2022 sobre Cardio-Oncología. ' +
++      'Comprende fases previa, intra y post tratamiento, con frecuencias específicas por clase farmacológica y nivel de riesgo HFA-ICOS.',
++    category: [
++      {
++        coding: [
++          { system: SYSTEM.snomed, code: '394579002', display: 'Cardio-oncology' },
++          { system: SYSTEM.loinc, code: '57827-4', display: 'Care plan' },
++        ],
++      },
++    ],
++    subject: input.patient,
++    period: {
++      start: input.startDate,
++      end: input.endDate ?? lastEventDate,
++    },
++    created: new Date().toISOString(),
++    author: input.author,
++    note: [
++      {
++        text: `Riesgo HFA-ICOS basal: ${input.riskLevel}. ${input.events.length} actividades programadas.`,
++      },
++    ],
++  };
++}
++
++/* ============================================================
++ * COMMUNICATION — notificación enviada al paciente
++ * ============================================================ */
++
++export interface NotificationInput {
++  patient: Reference<Patient>;
++  event: ScheduledEvent;
++  channel: 'in-app' | 'email' | 'sms' | 'push';
++  /** Días de anticipación con que se envía respecto a la fecha del evento */
++  leadDaysBefore: number;
++}
++
++export function buildNotification(input: NotificationInput): Communication {
++  const sentDate = addDaysISO(input.event.scheduledDate, -input.leadDaysBefore);
++  const subject = buildNotificationSubject(input.event, input.leadDaysBefore);
++  const body = buildNotificationBody(input.event, input.leadDaysBefore);
++
++  return {
++    resourceType: 'Communication',
++    status: 'preparation',
++    category: [
++      {
++        coding: [
++          { system: 'http://terminology.hl7.org/CodeSystem/communication-category', code: 'reminder', display: 'Reminder' },
++        ],
++      },
++    ],
++    medium: [
++      {
++        coding: [
++          {
++            system: 'http://terminology.hl7.org/CodeSystem/v3-ParticipationMode',
++            code: input.channel === 'email' ? 'EMAILWRIT' : input.channel === 'sms' ? 'SMSWRIT' : 'ELECTRONIC',
++            display: input.channel,
++          },
++        ],
++      },
++    ],
++    subject: input.patient,
++    recipient: [input.patient],
++    topic: { text: subject },
++    payload: [{ contentString: body }],
++    sent: sentDate,
++  };
++}
++
++/* ============================================================
++ * HELPERS — formato de notificaciones
++ * ============================================================ */
++
++function buildNotificationSubject(event: ScheduledEvent, leadDays: number): string {
++  if (leadDays === 0) {
++    return `Hoy: ${event.label}`;
++  }
++  if (leadDays === 1) {
++    return `Mañana: ${event.label}`;
++  }
++  return `En ${leadDays} días: ${event.label}`;
++}
++
++function buildNotificationBody(event: ScheduledEvent, leadDays: number): string {
++  const when =
++    leadDays === 0
++      ? 'Hoy es el día'
++      : leadDays === 1
++        ? 'Mañana'
++        : `En ${leadDays} días, el ${formatHumanDate(event.scheduledDate)},`;
++
++  if (event.study === 'questionnaire-proms') {
++    return `${when} te pediremos que respondas un cuestionario corto sobre cómo te sentís. Te toma menos de 2 minutos y le permite a tu equipo médico actuar a tiempo.`;
++  }
++
++  if (event.study === 'home-bp') {
++    return `${when} corresponde tu medición domiciliaria de presión arterial. Recordá hacerla en reposo, sentado/a, después de 5 minutos sin hablar.`;
++  }
++
++  if (event.requiresInPersonVisit) {
++    return `${when} tenés programado: ${event.label}. Te esperamos en el servicio de Cardio-Oncología. Si no podés asistir, comunicate con anticipación.`;
++  }
++
++  return `${when} corresponde realizar: ${event.label}.`;
++}
++
++function addDaysISO(iso: string, days: number): string {
++  const d = new Date(iso + (iso.length === 10 ? 'T00:00:00Z' : ''));
++  d.setUTCDate(d.getUTCDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++function formatHumanDate(iso: string): string {
++  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
++                  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
++  const d = new Date(iso + 'T00:00:00Z');
++  return `${d.getUTCDate()} de ${months[d.getUTCMonth()]}`;
++}
++
++/* ============================================================
++ * BATCH BUILDER — construye un Bundle FHIR completo
++ * ============================================================ */
++
++export interface BuildBundleInput {
++  patient: Reference<Patient>;
++  events: ScheduledEvent[];
++  practitioner?: Reference<Practitioner>;
++  riskLevel: CarePlanInput['riskLevel'];
++  startDate: string;
++}
++
++export function buildScheduleBundle(input: BuildBundleInput) {
++  const carePlan = buildCarePlan({
++    patient: input.patient,
++    events: input.events,
++    riskLevel: input.riskLevel,
++    startDate: input.startDate,
++    author: input.practitioner,
++  });
++
++  const resources = input.events.flatMap((event) => {
++    const rs: Array<Appointment | ServiceRequest | Task | Communication> = [];
++
++    // Recurso clínico principal
++    if (event.fhir.resourceType === 'Appointment') {
++      rs.push(buildAppointment(event, input.patient, input.practitioner));
++    } else if (event.fhir.resourceType === 'ServiceRequest') {
++      rs.push(buildServiceRequest(event, input.patient, input.practitioner));
++    } else if (event.fhir.resourceType === 'Task') {
++      rs.push(buildTask(event, input.patient));
++    }
++
++    // Notificaciones programadas
++    for (const lead of event.reminderLeadDaysBefore) {
++      rs.push(
++        buildNotification({
++          patient: input.patient,
++          event,
++          channel: 'in-app',
++          leadDaysBefore: lead,
++        }),
++      );
++    }
++    return rs;
++  });
++
++  return {
++    resourceType: 'Bundle',
++    type: 'collection',
++    entry: [{ resource: carePlan }, ...resources.map((r) => ({ resource: r }))],
++  };
++}
+diff --git a/src/lib/cardio-onco/scheduleEngine.ts b/src/lib/cardio-onco/scheduleEngine.ts
+new file mode 100644
+index 0000000..abfa6ae
+--- /dev/null
++++ b/src/lib/cardio-onco/scheduleEngine.ts
+@@ -0,0 +1,440 @@
++/**
++ * Cardio-Oncology Schedule Engine
++ *
++ * Genera el cronograma de seguimiento cardio-oncológico personalizado
++ * a partir del régimen terapéutico, el riesgo basal HFA-ICOS y la fase
++ * del tratamiento. Las frecuencias derivan de las Tablas 7-14 de la
++ * Guía ESC 2022 sobre Cardio-Oncología.
++ *
++ * Referencias:
++ *  - ESC Guidelines on cardio-oncology, Eur Heart J 2022;43:4229-4361
++ *  - HFA-ICOS Risk Assessment Tools
++ *
++ * @module lib/cardio-onco/scheduleEngine
++ */
++
++import type { Patient, Reference } from '@medplum/fhirtypes';
++
++/* ============================================================
++ * TIPOS Y ENUMS
++ * ============================================================ */
++
++export type RiskLevel = 'low' | 'moderate' | 'high' | 'very-high';
++
++export type Phase = 'baseline' | 'on-treatment' | 'end-of-treatment' | 'survivorship';
++
++export type DrugClass =
++  | 'anthracycline'
++  | 'her2-targeted'
++  | 'vegf-inhibitor'
++  | 'bcr-abl-inhibitor'
++  | 'immune-checkpoint-inhibitor'
++  | 'proteasome-inhibitor'
++  | 'fluoropyrimidine'
++  | 'androgen-deprivation'
++  | 'radiotherapy-thoracic';
++
++export type StudyType =
++  | 'ecg'
++  | 'echo-2d'                  // Echocardiogram with FEVI
++  | 'echo-gls'                 // Echocardiogram with Global Longitudinal Strain
++  | 'troponin'                 // High-sensitivity troponin
++  | 'bnp'                      // BNP / NT-proBNP
++  | 'lipid-panel'
++  | 'hba1c'
++  | 'home-bp'                  // SMBP self-measured BP
++  | 'cardiac-mri'
++  | 'questionnaire-proms'      // Patient-reported outcome measures
++  | 'cardiology-consult';
++
++export interface ScheduledEvent {
++  /** Identificador estable derivado del plan */
++  id: string;
++
++  /** Tipo de estudio o actividad */
++  study: StudyType;
++
++  /** Fecha programada (ISO 8601, YYYY-MM-DD) */
++  scheduledDate: string;
++
++  /** Fase del tratamiento en que ocurre */
++  phase: Phase;
++
++  /** Etiqueta humana legible */
++  label: string;
++
++  /** Justificación clínica y referencia ESC */
++  rationale: string;
++
++  /** Si requiere visita presencial */
++  requiresInPersonVisit: boolean;
++
++  /** Días de anticipación con que se envía recordatorio */
++  reminderLeadDaysBefore: number[];
++
++  /** Vinculación a recursos FHIR */
++  fhir: {
++    resourceType: 'Appointment' | 'ServiceRequest' | 'Task';
++    /** LOINC del estudio */
++    loinc?: string;
++    /** SNOMED CT del procedimiento */
++    snomed?: string;
++  };
++}
++
++export interface ScheduleInput {
++  patient: Reference<Patient>;
++  baseline: {
++    riskLevel: RiskLevel;
++    /** Fecha desde la cual se proyecta el plan */
++    startDate: string;
++  };
++  regimen: {
++    drugs: DrugClass[];
++    /** Cantidad total de ciclos previstos (si aplica) */
++    plannedCycles?: number;
++    /** Días entre ciclos (default 21) */
++    cycleIntervalDays?: number;
++    /** Si recibió o recibirá radioterapia torácica */
++    thoracicRT?: boolean;
++  };
++  /** Fase actual del paciente */
++  currentPhase: Phase;
++}
++
++/* ============================================================
++ * CATÁLOGO LOINC / SNOMED
++ * ============================================================ */
++
++const CODES = {
++  ecg: { loinc: '11524-6', snomed: '29303009', label: 'ECG de 12 derivaciones' },
++  echo2d: { loinc: '8806-2', snomed: '40701008', label: 'Ecocardiograma 2D con FEVI' },
++  echoGls: { loinc: '93646-8', snomed: '40701008', label: 'Ecocardiograma con SLG (speckle tracking)' },
++  troponin: { loinc: '67151-1', snomed: '127081002', label: 'Troponina cardíaca de alta sensibilidad' },
++  bnp: { loinc: '33762-6', snomed: '127080001', label: 'NT-proBNP' },
++  lipid: { loinc: '57698-3', snomed: '252150009', label: 'Perfil lipídico' },
++  hba1c: { loinc: '4548-4', snomed: '43396009', label: 'Hemoglobina glicosilada' },
++  homeBP: { loinc: '85354-9', snomed: '413153004', label: 'Auto-medición de presión arterial domiciliaria' },
++  cardiacMRI: { loinc: '24590-4', snomed: '241621007', label: 'Resonancia magnética cardíaca' },
++  proms: { loinc: '86923-0', snomed: '273249006', label: 'Cuestionario de síntomas (PROMs)' },
++  consult: { loinc: '11488-4', snomed: '11429006', label: 'Consulta cardiológica' },
++} as const;
++
++/* ============================================================
++ * REGLAS DE FRECUENCIA POR CLASE FARMACOLÓGICA
++ * ============================================================ */
++
++interface FrequencyRule {
++  study: StudyType;
++  /** Cada cuántos ciclos (si aplica) */
++  everyNCycles?: number;
++  /** Cada cuántos días (si aplica) */
++  everyNDays?: number;
++  /** Si solo aplica en alto riesgo */
++  highRiskOnly?: boolean;
++  /** Justificación clínica con referencia ESC */
++  rationale: string;
++}
++
++/**
++ * Reglas de vigilancia INTRA-tratamiento por clase farmacológica.
++ * Derivadas de las Tablas 7-14 de la Guía ESC 2022.
++ */
++const ON_TREATMENT_RULES: Record<DrugClass, FrequencyRule[]> = {
++  anthracycline: [
++    {
++      study: 'troponin',
++      everyNCycles: 1,
++      highRiskOnly: false,
++      rationale: 'ESC 2022 §3 — Troponina pre-ciclo en alto riesgo; basal y final si moderado',
++    },
++    {
++      study: 'echo-gls',
++      everyNCycles: 2,
++      rationale: 'ESC 2022 Tabla 7 — Eco con SLG cada 2 ciclos en alto riesgo',
++    },
++    {
++      study: 'bnp',
++      everyNCycles: 2,
++      rationale: 'ESC 2022 §3 — Péptidos natriuréticos en seguimiento de alto riesgo',
++    },
++  ],
++  'her2-targeted': [
++    {
++      study: 'echo-gls',
++      everyNDays: 90,
++      rationale: 'ESC 2022 Tabla 8 — Eco cada 3 meses durante terapia anti-HER2',
++    },
++    {
++      study: 'troponin',
++      everyNDays: 90,
++      highRiskOnly: true,
++      rationale: 'ESC 2022 Tabla 8 — Troponina cada 3 meses si alto riesgo',
++    },
++  ],
++  'vegf-inhibitor': [
++    {
++      study: 'home-bp',
++      everyNDays: 7,
++      rationale: 'ESC 2022 Tabla 11 — SMBP semanal en pacientes con VEGFi',
++    },
++    {
++      study: 'echo-2d',
++      everyNDays: 120,
++      highRiskOnly: true,
++      rationale: 'ESC 2022 §6.3 — Eco cada 4 meses en alto riesgo con VEGFi',
++    },
++  ],
++  'bcr-abl-inhibitor': [
++    {
++      study: 'ecg',
++      everyNDays: 90,
++      rationale: 'ESC 2022 Tabla 13 — ECG cada 3 meses (riesgo de QT y vasculopatía)',
++    },
++    {
++      study: 'echo-2d',
++      everyNDays: 180,
++      highRiskOnly: true,
++      rationale: 'ESC 2022 §6.5 — Eco semestral en alto riesgo con ITK BCR-ABL',
++    },
++  ],
++  'immune-checkpoint-inhibitor': [
++    {
++      study: 'troponin',
++      everyNCycles: 1,
++      rationale: 'ESC 2022 Tabla 14 — Troponina antes de cada infusión durante los primeros 4 ciclos (riesgo de miocarditis)',
++    },
++    {
++      study: 'ecg',
++      everyNCycles: 1,
++      rationale: 'ESC 2022 Tabla 14 — ECG pre-infusión en los primeros 4 ciclos',
++    },
++  ],
++  'proteasome-inhibitor': [
++    {
++      study: 'echo-2d',
++      everyNDays: 90,
++      rationale: 'ESC 2022 §6.6 — Vigilancia ecocardiográfica trimestral con carfilzomib',
++    },
++    {
++      study: 'home-bp',
++      everyNDays: 7,
++      rationale: 'ESC 2022 §6.6 — SMBP semanal por riesgo de HTA',
++    },
++  ],
++  fluoropyrimidine: [
++    {
++      study: 'ecg',
++      everyNCycles: 1,
++      rationale: 'ESC 2022 §6.4 — ECG ante síntomas; vigilancia clínica de vasoespasmo',
++    },
++  ],
++  'androgen-deprivation': [
++    {
++      study: 'lipid-panel',
++      everyNDays: 180,
++      rationale: 'ESC 2022 Tabla 12 — Perfil lipídico semestral',
++    },
++    {
++      study: 'hba1c',
++      everyNDays: 180,
++      rationale: 'ESC 2022 Tabla 12 — HbA1c semestral',
++    },
++  ],
++  'radiotherapy-thoracic': [
++    // RT no se monitoriza por ciclo sino post-tratamiento
++  ],
++};
++
++/* ============================================================
++ * GENERADOR DE CRONOGRAMA
++ * ============================================================ */
++
++const STUDY_META: Record<StudyType, { code: typeof CODES[keyof typeof CODES]; visit: boolean; reminders: number[] }> = {
++  ecg: { code: CODES.ecg, visit: true, reminders: [3, 1] },
++  'echo-2d': { code: CODES.echo2d, visit: true, reminders: [7, 1] },
++  'echo-gls': { code: CODES.echoGls, visit: true, reminders: [7, 1] },
++  troponin: { code: CODES.troponin, visit: true, reminders: [2, 0] },
++  bnp: { code: CODES.bnp, visit: true, reminders: [2, 0] },
++  'lipid-panel': { code: CODES.lipid, visit: true, reminders: [3, 1] },
++  hba1c: { code: CODES.hba1c, visit: true, reminders: [3, 1] },
++  'home-bp': { code: CODES.homeBP, visit: false, reminders: [0] },
++  'cardiac-mri': { code: CODES.cardiacMRI, visit: true, reminders: [7, 2] },
++  'questionnaire-proms': { code: CODES.proms, visit: false, reminders: [0] },
++  'cardiology-consult': { code: CODES.consult, visit: true, reminders: [7, 2, 0] },
++};
++
++function addDays(iso: string, days: number): string {
++  const d = new Date(iso + 'T00:00:00Z');
++  d.setUTCDate(d.getUTCDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++function buildEvent(
++  patientRef: string,
++  study: StudyType,
++  date: string,
++  phase: Phase,
++  rationale: string,
++): ScheduledEvent {
++  const meta = STUDY_META[study];
++  const id = `${patientRef}|${study}|${date}`.replace(/\s+/g, '_');
++  const fhirType: 'Appointment' | 'ServiceRequest' | 'Task' =
++    study === 'questionnaire-proms' || study === 'home-bp'
++      ? 'Task'
++      : study === 'cardiology-consult'
++        ? 'Appointment'
++        : 'ServiceRequest';
++
++  return {
++    id,
++    study,
++    scheduledDate: date,
++    phase,
++    label: meta.code.label,
++    rationale,
++    requiresInPersonVisit: meta.visit,
++    reminderLeadDaysBefore: meta.reminders,
++    fhir: { resourceType: fhirType, loinc: meta.code.loinc, snomed: meta.code.snomed },
++  };
++}
++
++/**
++ * Construye el cronograma completo para un paciente cardio-oncológico.
++ * Devuelve eventos ordenados por fecha.
++ */
++export function generateSchedule(input: ScheduleInput): ScheduledEvent[] {
++  const events: ScheduledEvent[] = [];
++  const start = input.baseline.startDate;
++  const cycleDays = input.regimen.cycleIntervalDays ?? 21;
++  const cycles = input.regimen.plannedCycles ?? 6;
++  const isHigh = input.baseline.riskLevel === 'high' || input.baseline.riskLevel === 'very-high';
++  const patientRef = input.patient.reference ?? 'Patient/unknown';
++
++  /* -------- FASE BASAL -------- */
++  // ESC 2022 §2: evaluación basal independiente del riesgo
++  events.push(
++    buildEvent(patientRef, 'ecg', start, 'baseline', 'ESC 2022 §2 — ECG basal'),
++    buildEvent(patientRef, 'echo-gls', start, 'baseline', 'ESC 2022 §2 — Eco con FEVI y SLG basal'),
++    buildEvent(patientRef, 'troponin', start, 'baseline', 'ESC 2022 §2 — Troponina basal'),
++    buildEvent(patientRef, 'bnp', start, 'baseline', 'ESC 2022 §2 — Péptidos natriuréticos basales'),
++  );
++  // En alto y muy alto riesgo, consulta cardiológica antes de iniciar
++  if (isHigh) {
++    events.push(
++      buildEvent(
++        patientRef,
++        'cardiology-consult',
++        start,
++        'baseline',
++        'ESC 2022 §2 — Derivación obligatoria a cardiología en alto/muy alto riesgo',
++      ),
++    );
++  }
++
++  /* -------- FASE INTRA-TRATAMIENTO -------- */
++  for (const drug of input.regimen.drugs) {
++    const rules = ON_TREATMENT_RULES[drug] ?? [];
++    for (const rule of rules) {
++      if (rule.highRiskOnly && !isHigh) continue;
++
++      if (rule.everyNCycles) {
++        for (let cycle = 1; cycle <= cycles; cycle += rule.everyNCycles) {
++          const date = addDays(start, cycle * cycleDays);
++          events.push(buildEvent(patientRef, rule.study, date, 'on-treatment', rule.rationale));
++        }
++      } else if (rule.everyNDays) {
++        const totalDays = cycles * cycleDays;
++        for (let d = rule.everyNDays; d <= totalDays; d += rule.everyNDays) {
++          events.push(buildEvent(patientRef, rule.study, addDays(start, d), 'on-treatment', rule.rationale));
++        }
++      }
++    }
++  }
++
++  // PROMs semanales durante todo el tratamiento (todas las clases)
++  if (input.regimen.drugs.length > 0) {
++    const totalDays = cycles * cycleDays;
++    for (let d = 7; d <= totalDays; d += 7) {
++      events.push(
++        buildEvent(
++          patientRef,
++          'questionnaire-proms',
++          addDays(start, d),
++          'on-treatment',
++          'ESC 2022 §3 — Captura semanal de síntomas reportados por el paciente',
++        ),
++      );
++    }
++  }
++
++  /* -------- FASE POST-TRATAMIENTO -------- */
++  const endOfTx = addDays(start, cycles * cycleDays);
++
++  // Reevaluación a 3 y 12 meses (alto riesgo)
++  if (isHigh) {
++    const m3 = addDays(endOfTx, 90);
++    const m12 = addDays(endOfTx, 365);
++    events.push(
++      buildEvent(patientRef, 'echo-gls', m3, 'end-of-treatment', 'ESC 2022 §10 — Reevaluación a 3 meses post-tratamiento'),
++      buildEvent(patientRef, 'troponin', m3, 'end-of-treatment', 'ESC 2022 §10 — Troponina a 3 meses'),
++      buildEvent(patientRef, 'echo-gls', m12, 'survivorship', 'ESC 2022 §10 — Reevaluación a 12 meses'),
++      buildEvent(patientRef, 'bnp', m12, 'survivorship', 'ESC 2022 §10 — NT-proBNP a 12 meses'),
++    );
++  } else {
++    const m12 = addDays(endOfTx, 365);
++    events.push(
++      buildEvent(patientRef, 'echo-2d', m12, 'survivorship', 'ESC 2022 §10 — Control anual'),
++    );
++  }
++
++  // Reestratificación a 5 años en pacientes con antraciclinas o RT torácica
++  const requiresFiveYearReeval = input.regimen.drugs.includes('anthracycline') || input.regimen.thoracicRT;
++  if (requiresFiveYearReeval) {
++    events.push(
++      buildEvent(
++        patientRef,
++        'cardiology-consult',
++        addDays(endOfTx, 365 * 5),
++        'survivorship',
++        'ESC 2022 §10 — Reestratificación a 5 años (antraciclinas / RT torácica)',
++      ),
++      buildEvent(
++        patientRef,
++        'echo-gls',
++        addDays(endOfTx, 365 * 5),
++        'survivorship',
++        'ESC 2022 §10 — Eco a 5 años',
++      ),
++    );
++  }
++
++  /* -------- ORDENAR Y DEDUPLICAR -------- */
++  const dedup = new Map<string, ScheduledEvent>();
++  for (const e of events) dedup.set(e.id, e);
++  return Array.from(dedup.values()).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
++}
++
++/* ============================================================
++ * RESUMEN POR FASE — para UI
++ * ============================================================ */
++
++export function summarizeByPhase(events: ScheduledEvent[]) {
++  return events.reduce(
++    (acc, e) => {
++      acc[e.phase] = (acc[e.phase] || 0) + 1;
++      return acc;
++    },
++    { baseline: 0, 'on-treatment': 0, 'end-of-treatment': 0, survivorship: 0 } as Record<Phase, number>,
++  );
++}
++
++export function summarizeByStudy(events: ScheduledEvent[]) {
++  return events.reduce(
++    (acc, e) => {
++      acc[e.study] = (acc[e.study] || 0) + 1;
++      return acc;
++    },
++    {} as Record<StudyType, number>,
++  );
++}
+diff --git a/src/pages/cardio-onco/notifications/NotificationsPage.tsx b/src/pages/cardio-onco/notifications/NotificationsPage.tsx
+new file mode 100644
+index 0000000..b14ac2d
+--- /dev/null
++++ b/src/pages/cardio-onco/notifications/NotificationsPage.tsx
+@@ -0,0 +1,221 @@
++/**
++ * NotificationsPage — vista del paciente: notificaciones del programa
++ *
++ * Ruta sugerida: /cardio-onco/notifications  (rol paciente)
++ *
++ * Lista las notificaciones (recursos Communication) dirigidas al paciente
++ * autenticado, agrupadas por estado (pendientes / atendidas / vencidas).
++ */
++
++import { useEffect, useMemo, useState } from 'react';
++import { useMedplum, useMedplumProfile } from '@medplum/react';
++import {
++  BellAlertIcon,
++  CheckCircleIcon,
++  ExclamationTriangleIcon,
++  InboxIcon,
++} from '@heroicons/react/24/outline';
++import type { Communication } from '@medplum/fhirtypes';
++
++type NotifStatus = 'pending' | 'completed' | 'overdue';
++
++interface UINotif {
++  id: string;
++  subject: string;
++  body: string;
++  sent: string;
++  status: NotifStatus;
++  raw: Communication;
++}
++
++export default function NotificationsPage(): JSX.Element {
++  const medplum = useMedplum();
++  const profile = useMedplumProfile();
++  const [items, setItems] = useState<UINotif[]>([]);
++  const [loading, setLoading] = useState<boolean>(true);
++
++  useEffect(() => {
++    if (!profile) return;
++    const load = async () => {
++      setLoading(true);
++      const bundle = await medplum.searchResources('Communication', {
++        recipient: `Patient/${profile.id}`,
++        _sort: '-sent',
++        _count: 50,
++      });
++      const now = Date.now();
++      setItems(
++        bundle.map((c) => ({
++          id: c.id ?? '',
++          subject: c.topic?.text ?? c.payload?.[0]?.contentString?.slice(0, 60) ?? 'Recordatorio',
++          body: c.payload?.[0]?.contentString ?? '',
++          sent: c.sent ?? '',
++          status: deriveStatus(c, now),
++          raw: c,
++        })),
++      );
++      setLoading(false);
++    };
++    void load();
++  }, [medplum, profile]);
++
++  const grouped = useMemo(() => {
++    return {
++      pending: items.filter((x) => x.status === 'pending'),
++      overdue: items.filter((x) => x.status === 'overdue'),
++      completed: items.filter((x) => x.status === 'completed'),
++    };
++  }, [items]);
++
++  const markCompleted = async (notif: UINotif) => {
++    await medplum.updateResource({
++      ...notif.raw,
++      status: 'completed',
++      received: new Date().toISOString(),
++    });
++    setItems((prev) =>
++      prev.map((x) => (x.id === notif.id ? { ...x, status: 'completed' } : x)),
++    );
++  };
++
++  return (
++    <div className="mx-auto max-w-3xl px-6 py-10">
++      <header className="mb-8 border-b border-slate-200 pb-6">
++        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-rose-700">
++          <BellAlertIcon className="h-4 w-4" />
++          Programa Cardio-Oncológico — Tus notificaciones
++        </div>
++        <h1 className="mt-3 font-serif text-3xl text-slate-900">Tu agenda de seguimiento</h1>
++        <p className="mt-2 max-w-xl text-sm text-slate-600">
++          Estos son los recordatorios y actividades que tu equipo de cardio-oncología programó
++          para vos. Tocá una notificación para ver el detalle o marcarla como atendida.
++        </p>
++      </header>
++
++      {loading && <p className="text-sm text-slate-500">Cargando…</p>}
++
++      {!loading && items.length === 0 && (
++        <EmptyState
++          icon={<InboxIcon className="h-12 w-12 text-slate-400" />}
++          title="No tenés notificaciones pendientes"
++          subtitle="Cuando tu equipo médico active el plan de seguimiento, las verás acá."
++        />
++      )}
++
++      {grouped.overdue.length > 0 && (
++        <Section
++          title="Pendientes vencidas"
++          subtitle="Estas actividades superaron la fecha programada. Comunicate con el equipo médico."
++          tone="overdue"
++        >
++          {grouped.overdue.map((n) => (
++            <NotifCard key={n.id} notif={n} onComplete={() => markCompleted(n)} />
++          ))}
++        </Section>
++      )}
++
++      {grouped.pending.length > 0 && (
++        <Section title="Próximas" subtitle="Actividades programadas que aún no realizaste." tone="pending">
++          {grouped.pending.map((n) => (
++            <NotifCard key={n.id} notif={n} onComplete={() => markCompleted(n)} />
++          ))}
++        </Section>
++      )}
++
++      {grouped.completed.length > 0 && (
++        <Section title="Atendidas" subtitle="Historial de las que ya marcaste." tone="completed">
++          {grouped.completed.map((n) => (
++            <NotifCard key={n.id} notif={n} onComplete={() => markCompleted(n)} />
++          ))}
++        </Section>
++      )}
++    </div>
++  );
++}
++
++function deriveStatus(c: Communication, now: number): NotifStatus {
++  if (c.status === 'completed') return 'completed';
++  const sent = c.sent ? new Date(c.sent).getTime() : NaN;
++  // Si pasaron > 48 h desde el envío y no se marcó como recibida → vencida.
++  if (Number.isFinite(sent) && now - sent > 48 * 60 * 60 * 1000) return 'overdue';
++  return 'pending';
++}
++
++/* ============ Sub-components ============ */
++
++function Section({
++  title,
++  subtitle,
++  tone,
++  children,
++}: {
++  title: string;
++  subtitle: string;
++  tone: 'pending' | 'overdue' | 'completed';
++  children: React.ReactNode;
++}) {
++  const palette = {
++    pending: 'border-amber-300 bg-amber-50',
++    overdue: 'border-rose-300 bg-rose-50',
++    completed: 'border-emerald-300 bg-emerald-50',
++  }[tone];
++  return (
++    <section className={`mb-8 rounded-lg border ${palette} p-5`}>
++      <header className="mb-4 flex items-baseline justify-between">
++        <h2 className="font-serif text-xl text-slate-900">{title}</h2>
++        <p className="text-xs italic text-slate-600">{subtitle}</p>
++      </header>
++      <div className="space-y-3">{children}</div>
++    </section>
++  );
++}
++
++function NotifCard({ notif, onComplete }: { notif: UINotif; onComplete: () => void }) {
++  const Icon =
++    notif.status === 'completed'
++      ? CheckCircleIcon
++      : notif.status === 'overdue'
++        ? ExclamationTriangleIcon
++        : BellAlertIcon;
++  return (
++    <article className="flex items-start gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
++      <Icon
++        className={`h-5 w-5 flex-shrink-0 ${
++          notif.status === 'completed'
++            ? 'text-emerald-700'
++            : notif.status === 'overdue'
++              ? 'text-rose-700'
++              : 'text-amber-700'
++        }`}
++      />
++      <div className="flex-1">
++        <h3 className="font-serif text-base text-slate-900">{notif.subject}</h3>
++        <p className="mt-1 text-sm text-slate-700">{notif.body}</p>
++        <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-slate-500">
++          {notif.sent ? new Date(notif.sent).toLocaleDateString('es-AR', {
++            day: '2-digit', month: 'short', year: 'numeric',
++          }) : '—'}
++        </p>
++      </div>
++      {notif.status !== 'completed' && (
++        <button
++          type="button"
++          onClick={onComplete}
++          className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700"
++        >
++          Marcar atendida
++        </button>
++      )}
++    </article>
++  );
++}
++
++function EmptyState({ icon, title, subtitle }: { icon: JSX.Element; title: string; subtitle: string }) {
++  return (
++    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-12 text-center">
++      <div className="mx-auto mb-4 inline-block">{icon}</div>
++      <h2 className="font-serif text-xl text-slate-900">{title}</h2>
++      <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
++    </div>
++  );
++}
+diff --git a/src/pages/cardio-onco/scheduling/SchedulePage.tsx b/src/pages/cardio-onco/scheduling/SchedulePage.tsx
+new file mode 100644
+index 0000000..419f22d
+--- /dev/null
++++ b/src/pages/cardio-onco/scheduling/SchedulePage.tsx
+@@ -0,0 +1,232 @@
++/**
++ * SchedulePage — vista del cardiólogo: configurar régimen y aprobar plan
++ *
++ * Ruta sugerida: /cardio-onco/schedule (rol profesional)
++ *
++ * Flujo:
++ *  1. El cardiólogo selecciona el paciente, el régimen terapéutico,
++ *     el riesgo basal HFA-ICOS y la fecha de inicio.
++ *  2. La aplicación genera el cronograma con generateSchedule().
++ *  3. Se previsualiza con SchedulePreview.
++ *  4. Al aprobar, se construye el Bundle FHIR (CarePlan + Appointments
++ *     + ServiceRequests + Tasks + Communications) y se persiste vía
++ *     medplum.executeBatch().
++ */
++
++import { useMemo, useState } from 'react';
++import { useMedplum, useMedplumProfile } from '@medplum/react';
++import { CheckCircleIcon } from '@heroicons/react/24/solid';
++import { SchedulePreview } from '../../../components/cardio-onco/SchedulePreview';
++import {
++  generateSchedule,
++  type DrugClass,
++  type RiskLevel,
++  type ScheduledEvent,
++} from '../../../lib/cardio-onco/scheduleEngine';
++import { buildScheduleBundle } from '../../../lib/cardio-onco/fhir';
++
++const DRUG_OPTIONS: { value: DrugClass; label: string }[] = [
++  { value: 'anthracycline', label: 'Antraciclinas' },
++  { value: 'her2-targeted', label: 'Anti-HER2' },
++  { value: 'vegf-inhibitor', label: 'Inhibidores de VEGF' },
++  { value: 'bcr-abl-inhibitor', label: 'BCR-ABL (ITK 2.ª–3.ª gen)' },
++  { value: 'immune-checkpoint-inhibitor', label: 'Inmunoterapia (ICI)' },
++  { value: 'proteasome-inhibitor', label: 'Inhibidor de proteasoma' },
++  { value: 'fluoropyrimidine', label: 'Fluoropirimidinas' },
++  { value: 'androgen-deprivation', label: 'Deprivación androgénica' },
++  { value: 'radiotherapy-thoracic', label: 'Radioterapia torácica' },
++];
++
++const RISK_OPTIONS: { value: RiskLevel; label: string }[] = [
++  { value: 'low', label: 'Bajo' },
++  { value: 'moderate', label: 'Moderado' },
++  { value: 'high', label: 'Alto' },
++  { value: 'very-high', label: 'Muy alto' },
++];
++
++export default function SchedulePage(): JSX.Element {
++  const medplum = useMedplum();
++  const profile = useMedplumProfile();
++
++  const [patientId, setPatientId] = useState<string>('');
++  const [riskLevel, setRiskLevel] = useState<RiskLevel>('high');
++  const [drugs, setDrugs] = useState<DrugClass[]>(['anthracycline']);
++  const [cycles, setCycles] = useState<number>(6);
++  const [startDate, setStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
++  const [thoracicRT, setThoracicRT] = useState<boolean>(false);
++  const [saved, setSaved] = useState<boolean>(false);
++  const [saving, setSaving] = useState<boolean>(false);
++
++  const events: ScheduledEvent[] = useMemo(() => {
++    if (!patientId) return [];
++    return generateSchedule({
++      patient: { reference: `Patient/${patientId}` },
++      baseline: { riskLevel, startDate },
++      regimen: { drugs, plannedCycles: cycles, thoracicRT },
++      currentPhase: 'baseline',
++    });
++  }, [patientId, riskLevel, drugs, cycles, startDate, thoracicRT]);
++
++  const toggleDrug = (d: DrugClass) => {
++    setDrugs((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
++  };
++
++  const handleApprove = async () => {
++    if (!patientId || events.length === 0) return;
++    setSaving(true);
++    setSaved(false);
++    try {
++      const bundle = buildScheduleBundle({
++        patient: { reference: `Patient/${patientId}` },
++        events,
++        practitioner: profile ? { reference: `Practitioner/${profile.id}` } : undefined,
++        riskLevel,
++        startDate,
++      });
++      // Persiste el Bundle: en producción usar medplum.executeBatch(bundle)
++      // tras transformarlo a un transaction Bundle con métodos POST.
++      await medplum.executeBatch(bundle as never);
++      setSaved(true);
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  return (
++    <div className="mx-auto max-w-6xl px-6 py-10">
++      {/* ============ FORM ============ */}
++      <section className="rounded-lg bg-white p-6 ring-1 ring-slate-200">
++        <h2 className="font-serif text-2xl text-slate-900">Configurar plan de seguimiento</h2>
++        <p className="mt-1 text-sm text-slate-600">
++          Definí el régimen terapéutico, el riesgo basal HFA-ICOS y la fecha de inicio. La aplicación
++          generará el cronograma según la Guía ESC 2022.
++        </p>
++
++        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
++          <div>
++            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
++              Paciente (ID FHIR)
++            </label>
++            <input
++              type="text"
++              value={patientId}
++              onChange={(e) => setPatientId(e.target.value)}
++              placeholder="ej: 0a8d1f2e-..."
++              className="mt-2 w-full rounded border-slate-300 font-mono text-sm focus:border-rose-700 focus:ring-rose-700"
++            />
++          </div>
++          <div>
++            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
++              Fecha de inicio
++            </label>
++            <input
++              type="date"
++              value={startDate}
++              onChange={(e) => setStartDate(e.target.value)}
++              className="mt-2 w-full rounded border-slate-300 text-sm focus:border-rose-700 focus:ring-rose-700"
++            />
++          </div>
++
++          <div>
++            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
++              Riesgo HFA-ICOS basal
++            </label>
++            <select
++              value={riskLevel}
++              onChange={(e) => setRiskLevel(e.target.value as RiskLevel)}
++              className="mt-2 w-full rounded border-slate-300 text-sm focus:border-rose-700 focus:ring-rose-700"
++            >
++              {RISK_OPTIONS.map((r) => (
++                <option key={r.value} value={r.value}>
++                  {r.label}
++                </option>
++              ))}
++            </select>
++          </div>
++          <div>
++            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
++              Ciclos previstos
++            </label>
++            <input
++              type="number"
++              min={1}
++              max={24}
++              value={cycles}
++              onChange={(e) => setCycles(parseInt(e.target.value || '1', 10))}
++              className="mt-2 w-full rounded border-slate-300 text-sm focus:border-rose-700 focus:ring-rose-700"
++            />
++          </div>
++        </div>
++
++        <div className="mt-6">
++          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
++            Régimen terapéutico
++          </label>
++          <div className="mt-2 flex flex-wrap gap-2">
++            {DRUG_OPTIONS.map((d) => {
++              const active = drugs.includes(d.value);
++              return (
++                <button
++                  key={d.value}
++                  type="button"
++                  onClick={() => toggleDrug(d.value)}
++                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
++                    active
++                      ? 'bg-rose-700 text-white ring-1 ring-rose-800'
++                      : 'bg-slate-100 text-slate-700 ring-1 ring-slate-300 hover:bg-slate-200'
++                  }`}
++                >
++                  {d.label}
++                </button>
++              );
++            })}
++          </div>
++        </div>
++
++        <div className="mt-4">
++          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
++            <input
++              type="checkbox"
++              checked={thoracicRT}
++              onChange={(e) => setThoracicRT(e.target.checked)}
++              className="rounded border-slate-400 text-rose-700 focus:ring-rose-700"
++            />
++            Recibió o recibirá radioterapia torácica
++          </label>
++        </div>
++      </section>
++
++      {/* ============ PREVIEW ============ */}
++      {events.length > 0 && (
++        <div className="mt-8">
++          <SchedulePreview events={events} riskLevel={riskLevel} />
++
++          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg bg-slate-900 p-5 text-white">
++            <div className="text-sm">
++              <strong>Aprobar plan:</strong> persiste un{' '}
++              <code className="rounded bg-white/10 px-1 font-mono text-xs">CarePlan</code> + recursos
++              FHIR asociados y activa las notificaciones automáticas al frontal del paciente.
++            </div>
++            <button
++              type="button"
++              onClick={handleApprove}
++              disabled={saving || !patientId}
++              className="rounded bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-rose-600 disabled:bg-slate-600"
++            >
++              {saving ? 'Guardando…' : 'Aprobar y activar plan'}
++            </button>
++          </div>
++
++          {saved && (
++            <div className="mt-4 flex items-center gap-3 rounded-lg bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-200">
++              <CheckCircleIcon className="h-5 w-5" />
++              <p className="text-sm">
++                <strong>Plan activado.</strong> Las notificaciones se enviarán automáticamente según el cronograma.
++              </p>
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
+-- 
+2.43.0
+
