@@ -5,6 +5,8 @@ import Account from './pages/account';
 import CarePlan from './pages/care-plan';
 import GetCare from './pages/get-care';
 import HealthRecord from './pages/health-record';
+import Images from './pages/images';
+import LabResults from './pages/lab-results';
 import { LandingPage } from './pages/LandingPage';
 import Messages from './pages/messages';
 import Observation from './pages/observation';
@@ -19,6 +21,8 @@ export default function Router(): JSX.Element {
       <Route path="/" element={<HomePage />} />
       <Route path="messages/*" element={<Messages />} />
       <Route path="health-record/*" element={<HealthRecord />} />
+      <Route path="lab-results/*" element={<LabResults />} />
+      <Route path="images/*" element={<Images />} />
       <Route path="Observation/*" element={<Observation />} />
       <Route path="care-plan/*" element={<CarePlan />} />
       <Route path="get-care/*" element={<GetCare />} />

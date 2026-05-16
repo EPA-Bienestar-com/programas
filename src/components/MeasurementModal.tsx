@@ -26,6 +26,10 @@ interface MeasurementValues {
   duraciónSueño: string;
   duraciónEjercicio: string;
   duraciónPeríodo: string;
+  troponinaTHs: string;
+  troponinaIHs: string;
+  ntProBnp: string;
+  feviEco: string;
 }
 
 interface measurementModalInputTypes {
@@ -52,6 +56,10 @@ export default function MeasurementModal({ subject, type, isOpen, onClose }: Mea
     duraciónSueño: '',
     duraciónEjercicio: '',
     duraciónPeríodo: '',
+    troponinaTHs: '',
+    troponinaIHs: '',
+    ntProBnp: '',
+    feviEco: '',
   });
 
   const handleInputChange = (key: string, value: string): void => {
@@ -88,6 +96,14 @@ export default function MeasurementModal({ subject, type, isOpen, onClose }: Mea
       createMeasurement(modalValues.duraciónEjercicio);
     } else if (type === 'Duración Período' && modalValues.duraciónPeríodo) {
       createMeasurement(modalValues.duraciónPeríodo);
+    } else if (type === 'Troponina hs-cTnT' && modalValues.troponinaTHs) {
+      createMeasurement(modalValues.troponinaTHs);
+    } else if (type === 'Troponina hs-cTnI' && modalValues.troponinaIHs) {
+      createMeasurement(modalValues.troponinaIHs);
+    } else if (type === 'NT-proBNP' && modalValues.ntProBnp) {
+      createMeasurement(modalValues.ntProBnp);
+    } else if (type === 'Ecocardiograma Basal (FEVI)' && modalValues.feviEco) {
+      createMeasurement(modalValues.feviEco);
     }
   };
 
@@ -175,6 +191,34 @@ export default function MeasurementModal({ subject, type, isOpen, onClose }: Mea
       value: modalValues.duraciónPeríodo,
       name: 'duraciónPeríodo',
       placeholder: 'Días',
+    },
+    {
+      modalType: 'Troponina hs-cTnT',
+      inputType: 'number',
+      value: modalValues.troponinaTHs,
+      name: 'troponinaTHs',
+      placeholder: 'ng/L',
+    },
+    {
+      modalType: 'Troponina hs-cTnI',
+      inputType: 'number',
+      value: modalValues.troponinaIHs,
+      name: 'troponinaIHs',
+      placeholder: 'ng/L',
+    },
+    {
+      modalType: 'NT-proBNP',
+      inputType: 'number',
+      value: modalValues.ntProBnp,
+      name: 'ntProBnp',
+      placeholder: 'pg/mL',
+    },
+    {
+      modalType: 'Ecocardiograma Basal (FEVI)',
+      inputType: 'number',
+      value: modalValues.feviEco,
+      name: 'feviEco',
+      placeholder: '%',
     },
   ];
 

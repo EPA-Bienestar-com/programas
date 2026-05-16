@@ -424,6 +424,146 @@ case 'Duración Período (Fem)':
         effectiveDateTime: date,
         status: 'final',
       };
+    case 'Troponina hs-cTnT':
+      return {
+        resourceType: 'Observation',
+        subject,
+        category: [
+          {
+            coding: [
+              {
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+                code: 'laboratory',
+                display: 'Laboratory',
+              },
+            ],
+          },
+        ],
+        code: {
+          coding: [
+            {
+              code: '67151-1',
+              display: 'Troponin T.cardiac [Mass/volume] in Serum or Plasma by High sensitivity method',
+              system: 'http://loinc.org',
+            },
+          ],
+          text: 'Troponina hs-cTnT',
+        },
+        valueQuantity: {
+          code: 'ng/L',
+          system: 'http://unitsofmeasure.org',
+          unit: 'ng/L',
+          value: Number(firstValue),
+        },
+        effectiveDateTime: date,
+        status: 'final',
+      };
+
+    case 'Troponina hs-cTnI':
+      return {
+        resourceType: 'Observation',
+        subject,
+        category: [
+          {
+            coding: [
+              {
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+                code: 'laboratory',
+                display: 'Laboratory',
+              },
+            ],
+          },
+        ],
+        code: {
+          coding: [
+            {
+              code: '89579-7',
+              display: 'Troponin I.cardiac [Mass/volume] in Serum or Plasma by High sensitivity method',
+              system: 'http://loinc.org',
+            },
+          ],
+          text: 'Troponina hs-cTnI',
+        },
+        valueQuantity: {
+          code: 'ng/L',
+          system: 'http://unitsofmeasure.org',
+          unit: 'ng/L',
+          value: Number(firstValue),
+        },
+        effectiveDateTime: date,
+        status: 'final',
+      };
+
+    case 'NT-proBNP':
+      return {
+        resourceType: 'Observation',
+        subject,
+        category: [
+          {
+            coding: [
+              {
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+                code: 'laboratory',
+                display: 'Laboratory',
+              },
+            ],
+          },
+        ],
+        code: {
+          coding: [
+            {
+              code: '33762-6',
+              display: 'Natriuretic peptide B.N-terminal pro- [Mass/volume] in Serum or Plasma',
+              system: 'http://loinc.org',
+            },
+          ],
+          text: 'NT-proBNP',
+        },
+        valueQuantity: {
+          code: 'pg/mL',
+          system: 'http://unitsofmeasure.org',
+          unit: 'pg/mL',
+          value: Number(firstValue),
+        },
+        effectiveDateTime: date,
+        status: 'final',
+      };
+
+    case 'Ecocardiograma Basal (FEVI)':
+      return {
+        resourceType: 'Observation',
+        subject,
+        category: [
+          {
+            coding: [
+              {
+                system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+                code: 'imaging',
+                display: 'Imaging',
+              },
+            ],
+          },
+        ],
+        code: {
+          coding: [
+            {
+              code: '8806-2',
+              display: 'Left ventricular Ejection fraction by US.2D+Calculated by biplane ellipse',
+              system: 'http://loinc.org',
+            },
+          ],
+          text: 'Ecocardiograma Basal (FEVI)',
+        },
+        valueQuantity: {
+          code: '%',
+          system: 'http://unitsofmeasure.org',
+          unit: '%',
+          value: Number(firstValue),
+        },
+        effectiveDateTime: date,
+        status: 'final',
+      };
+
     default:
       return { resourceType: 'Observation' };
   }
