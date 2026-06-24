@@ -24,7 +24,7 @@
     "@types/react-slick": "^0.23.10",
     "@typescript-eslint/eslint-plugin": "^5.35.1",
     "@typescript-eslint/parser": "^5.35.1",
-    "@vitejs/plugin-react": "^2.0.1",
+    "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-c8": "^0.22.1",
     "autoprefixer": "^10.4.8",
     "c8": "^7.12.0",
@@ -58,6 +58,6 @@
   "dependencies": {
     "react-slick": "^0.29.0",
     "slick-carousel": "^1.8.1",
-    "vite-plugin-svgr": "^2.2.1"
+    "vite-plugin-svgr": "^5.2.0"
   }
 }
