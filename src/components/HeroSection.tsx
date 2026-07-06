@@ -17,7 +17,7 @@ import { ChevronDownIcon } from '@heroicons/react/24/solid';
 import { Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import Button from './Button';
-import { ReactComponent as Logo } from '../img/logo.svg';
+import Logo from '../img/logo.svg?react';
 import WorkingEnvironmentImage from '../img/landingPage/habitos-saludables-para-tu-vida-diaria.jpg';
 
 const features = [
@@ -70,7 +70,12 @@ const resources = [
     href: 'https://plataforma.miscaminatas.com/eventos/',
     icon: CalendarIcon,
   },
-  { name: 'Privacidad', description: 'Nos tomamos muy en serio su privacidad.', href: 'https://www.epa-bienestar.com.ar/politica_de_privacidad.html', icon: ShieldCheckIcon },
+  {
+    name: 'Privacidad',
+    description: 'Nos tomamos muy en serio su privacidad.',
+    href: 'https://www.epa-bienestar.com.ar/politica_de_privacidad.html',
+    icon: ShieldCheckIcon,
+  },
 ];
 const recentPosts = [
   { id: 1, name: 'Rincón del Hipertenso', href: 'https://www.rincondelhipertenso.com.ar/' },
@@ -165,11 +170,36 @@ export function HeroSection(): JSX.Element {
                   </>
                 )}
               </Popover>
-              <a href="https://seguimiento.epa-bienestar.com.ar/" className="text-base font-normal text-gray-500 hover:text-gray-900">Seguimiento</a>
-              <a href="https://profesionales.epa-bienestar.com.ar/" className="text-base font-normal text-gray-500 hover:text-gray-900">Profesionales</a>
-              <a href="https://chat.epa-bienestar.com.ar/" className="text-base font-normal text-gray-500 hover:text-gray-900">Chat</a>
-              <a href="https://cobertura.epa-bienestar.com.ar/" className="text-base font-normal text-gray-500 hover:text-gray-900">Cobertura</a>
-              <a href="https://tareas.epa-bienestar.com.ar/" className="text-base font-normal text-gray-500 hover:text-gray-900">Tareas</a>
+              <a
+                href="https://seguimiento.epa-bienestar.com.ar/"
+                className="text-base font-normal text-gray-500 hover:text-gray-900"
+              >
+                Seguimiento
+              </a>
+              <a
+                href="https://profesionales.epa-bienestar.com.ar/"
+                className="text-base font-normal text-gray-500 hover:text-gray-900"
+              >
+                Profesionales
+              </a>
+              <a
+                href="https://chat.epa-bienestar.com.ar/"
+                className="text-base font-normal text-gray-500 hover:text-gray-900"
+              >
+                Chat
+              </a>
+              <a
+                href="https://cobertura.epa-bienestar.com.ar/"
+                className="text-base font-normal text-gray-500 hover:text-gray-900"
+              >
+                Cobertura
+              </a>
+              <a
+                href="https://tareas.epa-bienestar.com.ar/"
+                className="text-base font-normal text-gray-500 hover:text-gray-900"
+              >
+                Tareas
+              </a>
               <Popover className="relative">
                 {({ open }) => (
                   <>
@@ -319,13 +349,12 @@ export function HeroSection(): JSX.Element {
                     <Link to="/signin" className="ml-6 text-blue-600 hover:text-blue-500">
                       Ingresar!
                     </Link>
-                  <Link
-                    to="/register"
-                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-normal text-white shadow-sm hover:bg-blue-700"
-                  >
-                    Crear una cuenta nueva!
-                  </Link>
-
+                    <Link
+                      to="/register"
+                      className="flex w-full items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-base font-normal text-white shadow-sm hover:bg-blue-700"
+                    >
+                      Crear una cuenta nueva!
+                    </Link>
                   </p>
                 </div>
               </div>
@@ -346,11 +375,16 @@ export function HeroSection(): JSX.Element {
               <p className="text-blue-600">Prevención de la Salud</p>
             </h1>
             <p className="mt-6 w-full max-w-xs text-lg font-normal text-neutral-600 sm:max-w-none md:max-w-sm lg:max-w-lg lg:text-xl">
-              "Sumate al Plan Bienestar 100 días ❤️"{' '}
+              &ldquo;Sumate al Plan Bienestar 100 días ❤️&rdquo;{' '}
             </p>
-	    <div className="mt-8 sm:flex sm:justify-center md:mt-20 lg:justify-start">
+            <div className="mt-8 sm:flex sm:justify-center md:mt-20 lg:justify-start">
               <div className="rounded-md shadow">
-                <a href="/signin" className="flex w-full items-center justify-center rounded-md border border-transparent bg-blue-600 py-4 px-20 text-lg font-normal text-white hover:bg-blue-700">Ingresar!</a>
+                <a
+                  href="/signin"
+                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-blue-600 py-4 px-20 text-lg font-normal text-white hover:bg-blue-700"
+                >
+                  Ingresar!
+                </a>
               </div>
             </div>
           </div>
