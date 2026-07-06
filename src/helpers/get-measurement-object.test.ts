@@ -21,7 +21,7 @@ describe('getMeasurementObject helper', () => {
     const result = getMeasurementObject(mockPatient, 'Presión Arterial', 'testFirstVal', 'testSecondVal');
 
     expect(result.code?.coding).toBeDefined();
-    expect(result.code?.coding?.[0]).toContain(expectedCoding);
+    expect(result.code?.coding?.[0]).toMatchObject(expectedCoding);
   });
 
   test('should pass reference and value arguments to returned Observation object', () => {

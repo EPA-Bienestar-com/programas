@@ -6,7 +6,7 @@ import Button from '../components/Button';
 import Carousel from '../components/Carousel';
 import PatientDashboard from '../components/PatientDashboard';
 import { formatHumanName } from '@medplum/core';
-import { ReactComponent as TaskIcon } from '../img/homePage/task-icon.svg';
+import TaskIcon from '../img/homePage/task-icon.svg?react';
 import { Patient, Practitioner } from '@medplum/fhirtypes';
 
 const carouselItems = [

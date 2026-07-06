@@ -1,6 +1,6 @@
 import { MouseEventHandler } from 'react';
-import { ReactComponent as Pills } from '../img/pills.svg';
-import { ReactComponent as AvatarPlaceholder } from '../img/avatar-placeholder.svg';
+import Pills from '../img/pills.svg?react';
+import AvatarPlaceholder from '../img/avatar-placeholder.svg?react';
 
 interface GeneralInfoProps {
   title?: string;

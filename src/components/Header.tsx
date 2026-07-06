@@ -4,8 +4,8 @@ import { formatHumanName, ProfileResource } from '@medplum/core';
 import { useMedplumProfile } from '@medplum/react';
 import React, { Fragment } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ReactComponent as AvatarPlaceholder } from '../img/avatar-placeholder.svg';
-import { ReactComponent as Logo } from '../img/logo.svg';
+import AvatarPlaceholder from '../img/avatar-placeholder.svg?react';
+import Logo from '../img/logo.svg?react';
 
 const navigation = [
   { name: 'Registros de Salud', href: '/health-record' },
