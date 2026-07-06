@@ -2,7 +2,7 @@ const getLocaleDate = (stringDate?: string, isHoursDisplayed = false, isMinutesD
   if (!stringDate) return null;
   const date = new Date(stringDate);
 
-  return date.toLocaleDateString('en-us', {
+  return date.toLocaleDateString('es-AR', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

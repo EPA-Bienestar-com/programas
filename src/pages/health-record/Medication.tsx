@@ -22,7 +22,7 @@ export default function Medication(): JSX.Element {
 
     if (resource.dosageInstruction) {
       medication.push({
-        label: 'Instruction',
+        label: 'Indicación',
         body: (
           <div className="flex flex-col">
             <p className="text-lg text-gray-600">{getTimingRepeat(resource.dosageInstruction[0].timing?.repeat)}</p>
@@ -35,17 +35,17 @@ export default function Medication(): JSX.Element {
     }
     if (resource.authoredOn) {
       medication.push({
-        label: 'Last prescribed',
+        label: 'Última prescripción',
         body: (
           <p className="text-lg text-gray-600">
-            {getLocaleDate(resource.authoredOn)} by {resource.requester?.display}
+            {getLocaleDate(resource.authoredOn)} por {resource.requester?.display}
           </p>
         ),
       });
     }
     if (resource.status) {
       medication.push({
-        label: 'Status',
+        label: 'Estado',
         body: <p className="text-lg capitalize text-gray-600">{resource.status}</p>,
       });
     }
@@ -57,16 +57,24 @@ export default function Medication(): JSX.Element {
     <>
       {resource ? (
         <>
-          <LinkToPreviousPage url="/health-record/medications" label="All Medications" />
+          <LinkToPreviousPage url="/health-record/medications" label="Toda la Medicación" />
           {resource.medicationCodeableConcept?.text && <PageTitle title={resource.medicationCodeableConcept?.text} />}
-          <p className="mb-6 text-lg text-gray-600">To refill this medication, please contact your pharmacy.</p>
+          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4">
+            <p className="text-lg text-gray-900">
+              ¿Suspendiste o estás por suspender esta medicación?{' '}
+              <Link to={`/health-record/medications/${medicationId}/suspension`} className="font-medium text-sky-700">
+                Contanos por qué
+              </Link>
+            </p>
+          </div>
+          <p className="mb-6 text-lg text-gray-600">Para reponer esta medicación, contactá a tu farmacia.</p>
           <p className="mb-6 text-lg text-gray-600">
-            No more refills available at your pharmacy?{' '}
+            ¿No te quedan reposiciones disponibles en tu farmacia?{' '}
             <Link to={`/health-record/medications/${medicationId}/prescription-renewal`} className="text-sky-700">
-              Renew your prescription
+              Renová tu receta
             </Link>
           </p>
-          <InfoSection title="Details">
+          <InfoSection title="Detalles">
             <TwoColumnsList items={medicationValues} />
           </InfoSection>
         </>

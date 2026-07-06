@@ -7,8 +7,6 @@ import InfoSection from '../../components/InfoSection';
 import NoData from '../../components/NoData';
 import PageTitle from '../../components/PageTitle';
 
-const title = 'Medications';
-
 export default function Medications(): JSX.Element {
   const medplum = useMedplum();
   const patient = medplum.getProfile() as Patient;
@@ -16,9 +14,13 @@ export default function Medications(): JSX.Element {
 
   return (
     <>
-      <PageTitle title="Medications" />
+      <PageTitle title="Medicación" />
+      <p className="mb-6 text-lg text-gray-600">
+        ¿Suspendiste o estás por suspender alguna medicación? Seleccionala en la lista y contanos por qué: es muy
+        importante para tu equipo de Cardio-Oncología.
+      </p>
       {bundle.entry?.length ? (
-        <InfoSection title="Medications">
+        <InfoSection title="Medicación">
           <ul role="list" className="divide-y divide-gray-200">
             {bundle.entry.map(({ resource }) => (
               <li key={resource?.id}>
@@ -38,7 +40,7 @@ export default function Medications(): JSX.Element {
           </ul>
         </InfoSection>
       ) : (
-        <NoData title="medications" />
+        <NoData title="medicación" />
       )}
     </>
   );
