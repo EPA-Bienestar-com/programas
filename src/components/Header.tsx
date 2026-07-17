@@ -32,16 +32,20 @@ export function Header(): JSX.Element {
     <header className="bg-white shadow">
       <div className="mx-auto max-w-7xl px-2 sm:px-4 lg:px-8">
         <Popover className="flex h-20 justify-between">
-          <div className="flex px-2 lg:px-0">
+          <div className="flex flex-1 justify-center px-2 lg:flex-none lg:justify-start lg:px-0">
             <div className="flex flex-shrink-0 items-center">
               <a href="/">
-                <Logo className="h-10 w-60" />
+                <Logo className="h-10 w-auto" />
               </a>
             </div>
           </div>
           <nav aria-label="Global" className="hidden lg:flex lg:items-center lg:space-x-4 xl:space-x-7">
             {navigation.map((item) => (
-              <NavLink key={item.name} to={item.href} className="text-lg text-neutral-500 hover:text-neutral-900">
+              <NavLink
+                key={item.name}
+                to={item.href}
+                className="whitespace-nowrap text-lg text-neutral-500 hover:text-neutral-900"
+              >
                 {item.name}
               </NavLink>
             ))}
@@ -49,7 +53,7 @@ export function Header(): JSX.Element {
           <div className="flex items-center lg:hidden">
             {/* Mobile menu button */}
             <Popover.Button className="inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500">
-              <span className="sr-only">Open main menu</span>
+              <span className="sr-only">Abrir menú</span>
               <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
             </Popover.Button>
           </div>
@@ -88,7 +92,7 @@ export function Header(): JSX.Element {
                         </div>
                         <div className="-mr-2">
                           <Popover.Button className="inline-flex items-center justify-center rounded-md bg-white p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500">
-                            <span className="sr-only">Close menu</span>
+                            <span className="sr-only">Cerrar menú</span>
                             <XMarkIcon className="h-6 w-6" aria-hidden="true" />
                           </Popover.Button>
                         </div>
@@ -125,7 +129,7 @@ export function Header(): JSX.Element {
                           type="button"
                           className="ml-auto flex-shrink-0 rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                         >
-                          <span className="sr-only">View notifications</span>
+                          <span className="sr-only">Ver notificaciones</span>
                           <BellIcon className="h-6 w-6" aria-hidden="true" />
                         </button>
                       </div>
@@ -151,7 +155,7 @@ export function Header(): JSX.Element {
             <Menu as="div" className="relative flex-shrink-0">
               <div>
                 <Menu.Button className="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                  <span className="sr-only">Open user menu</span>
+                  <span className="sr-only">Abrir menú de usuario</span>
                   {profile.photo && profile.photo?.length > 0 ? (
                     <img className="h-11 w-11 rounded-full" src={profile.photo[0].url} alt="" />
                   ) : (
