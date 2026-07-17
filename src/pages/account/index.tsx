@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import PageLayout from '../../components/PageLayout';
 
 const Profile = lazy(() => import('./Profile'));
+const MyData = lazy(() => import('./MyData'));
 const Provider = lazy(() => import('./Provider'));
 const MembershipAndBilling = lazy(() => import('./MembershipAndBilling'));
 const ChooseProvider = lazy(() => import('./ChooseProvider'));
@@ -10,6 +11,7 @@ const ChooseProvider = lazy(() => import('./ChooseProvider'));
 export const sideMenu = {
   title: 'Cuenta',
   menu: [
+    { name: 'Mis Datos', href: '/account/my-data' },
     { name: 'Perfil', href: '/account/profile' },
     { name: 'Profesional', href: '/account/provider' },
     { name: 'Programa', href: '/account/membership-and-billing' },
@@ -21,6 +23,7 @@ export default function Account(): JSX.Element {
     <PageLayout sideMenu={sideMenu}>
       <Routes>
         <Route index element={<Navigate replace to={sideMenu.menu[0].href} />} />
+        <Route path="my-data" element={<MyData />} />
         <Route path="profile" element={<Profile />} />
         <Route path="provider/*" element={<Provider />} />
         <Route path="provider/choose-a-primary-care-povider" element={<ChooseProvider />} />

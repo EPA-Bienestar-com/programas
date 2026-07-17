@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { SideMenu } from './SideMenu';
 import { Footer } from './Footer';
 import { SideMenuProps } from './SideMenu';
+import ErrorBoundary from './ErrorBoundary';
 import Loader from './Loader';
 
 export interface PageLayoutProps {
@@ -11,6 +13,7 @@ export interface PageLayoutProps {
 }
 
 export default function PageLayout({ children, sideMenu }: PageLayoutProps): JSX.Element {
+  const location = useLocation();
   return (
     <div className="flex h-screen flex-col justify-between">
       <Header />
@@ -18,7 +21,9 @@ export default function PageLayout({ children, sideMenu }: PageLayoutProps): JSX
         <div className="mx-auto my-4 grid max-w-3xl grid-cols-1 gap-6 bg-white px-4 sm:my-8 sm:px-6 lg:max-w-6xl lg:grid-flow-col-dense lg:grid-cols-4">
           {sideMenu && <SideMenu {...sideMenu} />}
           <div className={`${sideMenu ? 'lg:col-start-2' : ''} lg:col-span-4`}>
-            <Suspense fallback={<Loader />}>{children}</Suspense>
+            <Suspense fallback={<Loader />}>
+              <ErrorBoundary key={location.pathname}>{children}</ErrorBoundary>
+            </Suspense>
           </div>
         </div>
       </main>

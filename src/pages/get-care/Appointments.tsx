@@ -2,9 +2,12 @@ import { CalendarDaysIcon } from '@heroicons/react/24/outline';
 import { getReferenceString } from '@medplum/core';
 import { Appointment, Patient } from '@medplum/fhirtypes';
 import { useMedplum } from '@medplum/react';
+import { useEffect, useState } from 'react';
 import InfoSection from '../../components/InfoSection';
+import Loader from '../../components/Loader';
 import NoData from '../../components/NoData';
 import PageTitle from '../../components/PageTitle';
+import SectionUnavailable from '../../components/SectionUnavailable';
 import getLocaleDate from '../../helpers/get-locale-date';
 
 export const appointmentStatusLabels: { [key: string]: string } = {
@@ -59,11 +62,28 @@ function AppointmentItem({ appointment }: { appointment: Appointment }): JSX.Ele
 export default function Appointments(): JSX.Element {
   const medplum = useMedplum();
   const patient = medplum.getProfile() as Patient;
-  const bundle = medplum.search('Appointment', `patient=${getReferenceString(patient)}&_sort=date&_count=100`).read();
+  const [appointments, setAppointments] = useState<Appointment[]>();
+  const [error, setError] = useState<unknown>();
 
-  const appointments = (bundle.entry || [])
-    .map(({ resource }) => resource as Appointment)
-    .filter((resource) => resource && resource.status !== 'entered-in-error');
+  useEffect(() => {
+    medplum
+      .search('Appointment', `patient=${getReferenceString(patient)}&_sort=date&_count=100`)
+      .then((bundle) =>
+        setAppointments(
+          (bundle.entry || [])
+            .map(({ resource }) => resource as Appointment)
+            .filter((resource) => resource && resource.status !== 'entered-in-error')
+        )
+      )
+      .catch((err) => setError(err));
+  }, [medplum, patient]);
+
+  if (error) {
+    return <SectionUnavailable title="Mis Turnos" error={error} />;
+  }
+  if (!appointments) {
+    return <Loader />;
+  }
 
   const now = new Date().toISOString();
   const upcoming = appointments.filter(({ start, status }) => (!start || start >= now) && status !== 'cancelled');

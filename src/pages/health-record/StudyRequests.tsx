@@ -2,9 +2,12 @@ import { ClipboardDocumentListIcon } from '@heroicons/react/24/outline';
 import { getReferenceString } from '@medplum/core';
 import { Patient, ServiceRequest } from '@medplum/fhirtypes';
 import { useMedplum } from '@medplum/react';
+import { useEffect, useState } from 'react';
 import InfoSection from '../../components/InfoSection';
+import Loader from '../../components/Loader';
 import NoData from '../../components/NoData';
 import PageTitle from '../../components/PageTitle';
+import SectionUnavailable from '../../components/SectionUnavailable';
 import getLocaleDate from '../../helpers/get-locale-date';
 
 export const serviceRequestStatusLabels: { [key: string]: string } = {
@@ -62,13 +65,28 @@ function StudyRequestItem({ serviceRequest }: { serviceRequest: ServiceRequest }
 export default function StudyRequests(): JSX.Element {
   const medplum = useMedplum();
   const patient = medplum.getProfile() as Patient;
-  const bundle = medplum
-    .search('ServiceRequest', `patient=${getReferenceString(patient)}&_sort=-authored&_count=100`)
-    .read();
+  const [studyRequests, setStudyRequests] = useState<ServiceRequest[]>();
+  const [error, setError] = useState<unknown>();
 
-  const studyRequests = (bundle.entry || [])
-    .map(({ resource }) => resource as ServiceRequest)
-    .filter((resource) => resource && resource.status !== 'entered-in-error');
+  useEffect(() => {
+    medplum
+      .search('ServiceRequest', `patient=${getReferenceString(patient)}&_sort=-authored&_count=100`)
+      .then((bundle) =>
+        setStudyRequests(
+          (bundle.entry || [])
+            .map(({ resource }) => resource as ServiceRequest)
+            .filter((resource) => resource && resource.status !== 'entered-in-error')
+        )
+      )
+      .catch((err) => setError(err));
+  }, [medplum, patient]);
+
+  if (error) {
+    return <SectionUnavailable title="Pedidos de Estudios" error={error} />;
+  }
+  if (!studyRequests) {
+    return <Loader />;
+  }
 
   const pending = studyRequests.filter(
     ({ status }) => status === 'active' || status === 'draft' || status === 'on-hold'
