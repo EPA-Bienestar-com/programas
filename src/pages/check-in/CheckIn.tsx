@@ -196,6 +196,12 @@ export default function CheckIn(): JSX.Element {
           Fue enviado a tu equipo de Cardio-Oncología. Registrarlo cada semana los ayuda a detectar cambios a tiempo,
           incluso cuando te sentís bien.
         </p>
+        <p className="mt-3 text-base text-gray-600">
+          ¿Querés saber por qué te hacemos estas preguntas?{' '}
+          <Link to="/info/sintomas" className="font-medium text-sky-700">
+            Conocé los síntomas a los que prestar atención
+          </Link>
+        </p>
         <div className="mt-6 flex justify-center space-x-4">
           <Link
             to="/check-in/history"

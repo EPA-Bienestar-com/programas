@@ -1,9 +1,15 @@
 import React from 'react';
 
 const navigation = [
-  { name: 'GCBA Salud', href: 'https://buenosaires.gob.ar/salud/unidad-de-promocion-de-la-salud-y-control-de-enfermedades-cronicas-no-transmisibles' },
+  {
+    name: 'GCBA Salud',
+    href: 'https://buenosaires.gob.ar/salud/unidad-de-promocion-de-la-salud-y-control-de-enfermedades-cronicas-no-transmisibles',
+  },
   { name: 'Programa', href: 'https://www.epa-bienestar.com/prevencion.html' },
-  { name: 'Documento', href: 'https://buenosaires.gob.ar/sites/default/files/media/document/2018/11/23/186a804e001ae6ef9a638a8889c56d161b005f48.pdf' },
+  {
+    name: 'Documento',
+    href: 'https://buenosaires.gob.ar/sites/default/files/media/document/2018/11/23/186a804e001ae6ef9a638a8889c56d161b005f48.pdf',
+  },
   { name: 'TeleConsulta', href: 'https://calendar.app.google/JWYcJXgaS7xTE8QS7' },
 ];
 
@@ -21,7 +27,9 @@ export function Footer(): JSX.Element {
             </a>
           ))}
         </nav>
-        <p className="py-12 text-center text-sm text-neutral-900">&copy; 2024 EPA Bienestar IA. Derechos Reservados.</p>
+        <p className="py-12 text-center text-sm text-neutral-900">
+          &copy; {new Date().getFullYear()} EPA Bienestar IA. Derechos Reservados.
+        </p>
       </div>
     </footer>
   );
