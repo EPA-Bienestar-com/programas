@@ -1,11 +1,18 @@
-import { BoltIcon, CalendarDaysIcon, ClipboardDocumentListIcon, HeartIcon } from '@heroicons/react/24/outline';
+import {
+  BoltIcon,
+  CalendarDaysIcon,
+  ChatBubbleLeftRightIcon,
+  ClipboardDocumentListIcon,
+  HeartIcon,
+} from '@heroicons/react/24/outline';
 import { getReferenceString } from '@medplum/core';
-import { Appointment, Observation, Patient } from '@medplum/fhirtypes';
+import { Appointment, Observation, Patient, QuestionnaireResponse } from '@medplum/fhirtypes';
 import { useMedplum } from '@medplum/react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import getLocaleDate from '../helpers/get-locale-date';
 import renderValue from '../helpers/get-render-value';
+import { CHECKIN_QUESTIONNAIRE } from '../pages/check-in/definitions';
 import { getPractitionerName } from '../pages/get-care/Appointments';
 
 interface DashboardCardProps {
@@ -41,6 +48,7 @@ export default function PatientDashboard(): JSX.Element {
   const [activity, setActivity] = useState<Observation | null>(null);
   const [nextAppointment, setNextAppointment] = useState<Appointment | null>(null);
   const [pendingStudies, setPendingStudies] = useState<number | null>(null);
+  const [lastCheckIn, setLastCheckIn] = useState<string | null>(null);
 
   useEffect(() => {
     const patientRef = getReferenceString(patient);
@@ -76,11 +84,40 @@ export default function PatientDashboard(): JSX.Element {
       .search('ServiceRequest', `patient=${patientRef}&status=active&_count=100`)
       .then((bundle) => setPendingStudies(bundle.entry?.length || 0))
       .catch(() => setPendingStudies(null));
+
+    medplum
+      .search('QuestionnaireResponse', `subject=${patientRef}&_sort=-authored&_count=20`)
+      .then((bundle) => {
+        const latest = (bundle.entry || [])
+          .map(({ resource }) => resource as QuestionnaireResponse)
+          .find((resource) => resource && resource.questionnaire === CHECKIN_QUESTIONNAIRE);
+        setLastCheckIn(latest?.authored || null);
+      })
+      .catch(() => setLastCheckIn(null));
   }, [medplum, patient]);
 
   return (
     <div className="mt-10">
       <h2 className="mb-6 text-2xl font-bold text-gray-900">Mi Panel</h2>
+      <div className="mb-6 flex flex-col items-start justify-between space-y-4 rounded-md bg-blue-600 p-6 text-white shadow sm:flex-row sm:items-center sm:space-y-0">
+        <div className="flex items-center space-x-4">
+          <ChatBubbleLeftRightIcon className="h-10 w-10 flex-shrink-0" />
+          <div>
+            <h3 className="text-xl font-bold">Check-in semanal</h3>
+            <p className="text-base text-blue-100">
+              {lastCheckIn
+                ? `Último check-in: ${getLocaleDate(lastCheckIn)}. Contanos cómo seguiste.`
+                : 'Contanos cómo te sentiste esta semana. Te toma menos de 2 minutos.'}
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/check-in"
+          className="inline-flex flex-shrink-0 items-center rounded-md bg-white px-5 py-3 text-base font-medium text-blue-700 shadow-sm hover:bg-blue-50"
+        >
+          Hacer mi check-in
+        </Link>
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <DashboardCard
           icon={<HeartIcon className="h-6 w-6" />}

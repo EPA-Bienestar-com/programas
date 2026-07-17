@@ -8,6 +8,7 @@ import AvatarPlaceholder from '../img/avatar-placeholder.svg?react';
 import Logo from '../img/logo.svg?react';
 
 const navigation = [
+  { name: 'Check-in', href: '/check-in' },
   { name: 'Registros de Salud', href: '/health-record' },
   { name: 'Laboratorios', href: '/lab-results' },
   { name: 'Imágenes', href: '/images' },
@@ -16,6 +17,7 @@ const navigation = [
   { name: 'Consultas', href: '/get-care' },
 ];
 const userNavigation = [
+  { name: 'Mis Datos', href: '/account/my-data' },
   { name: 'Mi Perfil', href: '/account/profile' },
   { name: 'Salir', href: '/signout' },
 ];
