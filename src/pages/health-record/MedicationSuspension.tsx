@@ -102,7 +102,10 @@ export default function MedicationSuspension(): JSX.Element {
       )}
       <p className="mb-6 text-lg text-gray-600">
         Es muy importante que tu equipo de salud sepa si suspendiste o estás por suspender esta medicación, y por qué.
-        No suspendas tu tratamiento sin consultar con tu equipo de Cardio-Oncología.
+        No suspendas tu tratamiento sin consultar con tu equipo de Cardio-Oncología.{' '}
+        <Link to="/info/problema-cardiaco-previo" className="font-medium text-sky-700">
+          Leé por qué acá
+        </Link>
       </p>
       <InfoSection title="¿Suspendiste o estás por suspender esta medicación?">
         <div className="flex flex-col space-y-3 p-4 sm:p-6">

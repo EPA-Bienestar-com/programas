@@ -1,5 +1,6 @@
 import {
   BoltIcon,
+  BookOpenIcon,
   CalendarDaysIcon,
   ChatBubbleLeftRightIcon,
   CheckCircleIcon,
@@ -15,6 +16,7 @@ import getLocaleDate from '../helpers/get-locale-date';
 import renderValue from '../helpers/get-render-value';
 import { CHECKIN_QUESTIONNAIRE } from '../pages/check-in/definitions';
 import { getPractitionerName } from '../pages/get-care/Appointments';
+import { infoArticles } from '../pages/info/articles';
 
 const WEEK_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -153,6 +155,9 @@ export default function PatientDashboard(): JSX.Element {
 
   const activityMinutes = activity?.valueQuantity?.value;
   const sleepHours = sleep?.valueQuantity?.value;
+
+  // Un artículo destacado distinto por semana, para invitar a recorrer toda la guía.
+  const featuredArticle = infoArticles[Math.floor(Date.now() / WEEK_IN_MS) % infoArticles.length];
 
   return (
     <div className="mt-8">
@@ -317,6 +322,27 @@ export default function PatientDashboard(): JSX.Element {
             Informar sobre mi medicación
           </Link>
         </p>
+      </div>
+
+      <div className="mt-10 flex flex-col items-start justify-between space-y-4 rounded-md bg-white p-6 shadow sm:flex-row sm:items-center sm:space-y-0">
+        <div className="flex items-center space-x-4">
+          <div className="rounded-full bg-blue-100 p-2 text-blue-600">
+            <BookOpenIcon className="h-8 w-8" />
+          </div>
+          <div>
+            <p className="text-sm font-medium uppercase text-gray-500">Para entender tu tratamiento</p>
+            <h3 className="text-lg font-bold text-gray-900">{featuredArticle.title}</h3>
+            <p className="text-base text-gray-600">{featuredArticle.teaser}</p>
+          </div>
+        </div>
+        <div className="flex flex-shrink-0 flex-col items-start space-y-1 sm:items-end">
+          <Link to={`/info/${featuredArticle.id}`} className="text-base font-medium text-blue-600 hover:text-blue-800">
+            Leer ({featuredArticle.readingMinutes} min) →
+          </Link>
+          <Link to="/info" className="text-sm text-gray-500 hover:text-gray-700">
+            Ver todos los temas
+          </Link>
+        </div>
       </div>
 
       <div className="mt-10 flex flex-col items-center justify-center space-y-4 rounded-md bg-blue-900 p-6 text-center sm:flex-row sm:space-y-0 sm:space-x-6">

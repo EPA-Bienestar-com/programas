@@ -3,6 +3,7 @@ import { getReferenceString } from '@medplum/core';
 import { Patient, ServiceRequest } from '@medplum/fhirtypes';
 import { useMedplum } from '@medplum/react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import InfoSection from '../../components/InfoSection';
 import Loader from '../../components/Loader';
 import NoData from '../../components/NoData';
@@ -100,7 +101,10 @@ export default function StudyRequests(): JSX.Element {
       <PageTitle title="Pedidos de Estudios" />
       <p className="mb-6 text-lg text-gray-600">
         Acá vas a encontrar los estudios que tu equipo de Cardio-Oncología te solicitó. Recordá concurrir con la orden y
-        presentar los resultados en tu próxima consulta.
+        presentar los resultados en tu próxima consulta.{' '}
+        <Link to="/info/pruebas" className="font-medium text-sky-700">
+          ¿Para qué sirve cada estudio?
+        </Link>
       </p>
       {studyRequests.length ? (
         <>

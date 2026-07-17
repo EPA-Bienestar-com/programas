@@ -17,7 +17,10 @@ export default function Medications(): JSX.Element {
       <PageTitle title="Medicación" />
       <p className="mb-6 text-lg text-gray-600">
         ¿Suspendiste o estás por suspender alguna medicación? Seleccionala en la lista y contanos por qué: es muy
-        importante para tu equipo de Cardio-Oncología.
+        importante para tu equipo de Cardio-Oncología.{' '}
+        <Link to="/info/estilo-de-vida" className="font-medium text-sky-700">
+          Por qué es tan importante sostener tu medicación
+        </Link>
       </p>
       {bundle.entry?.length ? (
         <InfoSection title="Medicación">

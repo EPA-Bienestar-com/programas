@@ -4,6 +4,7 @@ import { HomePage } from './pages/HomePage';
 import Account from './pages/account';
 import CarePlan from './pages/care-plan';
 import CheckInModule from './pages/check-in';
+import InfoModule from './pages/info';
 import GetCare from './pages/get-care';
 import HealthRecord from './pages/health-record';
 import Images from './pages/images';
@@ -21,6 +22,7 @@ export default function Router(): JSX.Element {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="check-in/*" element={<CheckInModule />} />
+      <Route path="info/*" element={<InfoModule />} />
       <Route path="messages/*" element={<Messages />} />
       <Route path="health-record/*" element={<HealthRecord />} />
       <Route path="lab-results/*" element={<LabResults />} />
